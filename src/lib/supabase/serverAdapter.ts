@@ -514,9 +514,9 @@ export async function loadWorkspaceFromSupabase(
     sbUser.from('cards').select('*').order('created_at', { ascending: true }),
     sbUser.from('categories').select('*').order('created_at', { ascending: true }),
     sbUser.from('projects').select('*').order('created_at', { ascending: true }),
-    sbUser.from('financial_events').select('*').order('competence_date', { ascending: true }),
+    sbUser.from('financial_events').select('*').eq('is_deleted', false).order('competence_date', { ascending: true }),
     sbUser.from('allocations').select('*'),
-    sbUser.from('account_movements').select('*').order('effective_date', { ascending: true }),
+    sbUser.from('account_movements').select('*').eq('is_deleted', false).order('effective_date', { ascending: true }),
     sbUser.from('transfer_groups').select('*').order('effective_date', { ascending: true }),
     sbUser.from('recurrences').select('*').order('created_at', { ascending: true }),
     sbUser.from('installment_plans').select('*').order('purchase_date', { ascending: true }),
@@ -2624,4 +2624,27 @@ export async function sbDeleteImportBatch(
     fileName: String(batchRow.file_name || ''),
   });
   return { status: 200, payload: { ok: true } };
+}
+
+/**
+ * Exclusão em lote (soft delete) de lançamentos do próprio usuário.
+ * Processa em blocos pequenos para não sobrecarregar a conexão; ids inexistentes/alheios são ignorados.
+ */
+export async function sbSoftDeleteMovementsBulk(
+  sbUser: SupabaseClient,
+  sbAdmin: SupabaseClient | null,
+  ownerId: string,
+  movIds: string[],
+  reason?: string
+): Promise<{ deleted: number; skipped: number }> {
+  const unique = Array.from(new Set(movIds));
+  let deleted = 0;
+  const CHUNK = 10;
+  for (let i = 0; i < unique.length; i += CHUNK) {
+    const results = await Promise.all(
+      unique.slice(i, i + CHUNK).map((id) => sbSoftDeleteMovement(sbUser, sbAdmin, ownerId, id, reason))
+    );
+    deleted += results.filter(Boolean).length;
+  }
+  return { deleted, skipped: unique.length - deleted };
 }

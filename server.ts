@@ -56,6 +56,7 @@ import {
   sbRestorePackage,
   sbSettleObligation,
   sbSoftDeleteMovement,
+  sbSoftDeleteMovementsBulk,
   sbUndoImportBatch,
   sbDeleteImportBatch,
   sbUpdateAccount,
@@ -461,6 +462,27 @@ async function startServer() {
         return;
       }
       res.json(out.payload);
+    })
+  );
+
+  // Exclusão em lote de lançamentos (seleção múltipla na tela de Lançamentos)
+  app.post(
+    '/api/movements/bulk-delete',
+    requireAuth,
+    asyncRoute(async (req: AuthedRequest, res) => {
+      const ids = req.body?.ids;
+      if (!Array.isArray(ids) || ids.length === 0 || ids.length > 1000 || !ids.every((x) => typeof x === 'string')) {
+        res.status(400).json({ code: 'INVALID_IDS', message: 'Informe de 1 a 1000 lançamentos para excluir.' });
+        return;
+      }
+      const out = await sbSoftDeleteMovementsBulk(
+        req.sbUser!,
+        req.sbAdmin || null,
+        req.userId!,
+        ids,
+        typeof req.body?.reason === 'string' ? req.body.reason : 'Exclusão em lote pelo usuário'
+      );
+      res.json({ ok: true, ...out });
     })
   );
 

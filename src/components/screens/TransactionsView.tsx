@@ -1,10 +1,11 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { AccountMovement, WorkspaceData } from '../../lib/domain/types';
 import { formatCivilDateBR } from '../../lib/domain/money';
 import { buildSafeCsvExport } from '../../lib/importers/csvParser';
 import { apiRequest } from '../../lib/api/client';
 import { Button, FinancialValue, StatusTag } from '../ui/Primitives';
 import { PaginationBar, usePagination } from '../ui/Pagination';
+import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { Download, Plus, Search, Trash2, X } from 'lucide-react';
 
 interface Props {
@@ -65,6 +66,34 @@ export const TransactionsView: React.FC<Props> = ({
   }, [workspace.movements, accountFilter, pendingOnly, categoryFilter, search, eventMap, accountMap, categoryMap]);
   const pg = usePagination(filtered);
 
+  // Seleção múltipla para exclusão em lote (persiste entre páginas; é limpa ao mudar filtros)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [bulkConfirmOpen, setBulkConfirmOpen] = useState(false);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkMsg, setBulkMsg] = useState<string | null>(null);
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [search, accountFilter, categoryFilter, pendingOnly]);
+
+  const pageIds = pg.pageItems.map((m) => m.id);
+  const pageAllSelected = pageIds.length > 0 && pageIds.every((id) => selectedIds.has(id));
+  const pageSomeSelected = pageIds.some((id) => selectedIds.has(id));
+  const toggleOne = (id: string) =>
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const togglePage = () =>
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (pageAllSelected) pageIds.forEach((id) => next.delete(id));
+      else pageIds.forEach((id) => next.add(id));
+      return next;
+    });
+  const selectAllFiltered = () => setSelectedIds(new Set(filtered.map((m) => m.id)));
+
   const openDetail = (mov: AccountMovement) => {
     const ev = mov.eventId ? eventMap.get(mov.eventId) : undefined;
     setSelectedMov(mov);
@@ -114,6 +143,31 @@ export const TransactionsView: React.FC<Props> = ({
       setDrawerError(err instanceof Error ? err.message : 'Falha ao excluir.');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    const ids = Array.from(selectedIds);
+    setBulkBusy(true);
+    setBulkMsg(null);
+    try {
+      let deleted = 0;
+      for (let i = 0; i < ids.length; i += 500) {
+        const r = await apiRequest<{ deleted: number }>('/api/movements/bulk-delete', {
+          method: 'POST',
+          body: { ids: ids.slice(i, i + 500), reason: 'Exclusão em lote pelo usuário na tela de Lançamentos' },
+        });
+        deleted += r.deleted;
+      }
+      setBulkConfirmOpen(false);
+      setSelectedIds(new Set());
+      setBulkMsg(`${deleted} lançamento(s) excluído(s).`);
+      await onRefresh();
+    } catch (err) {
+      setBulkConfirmOpen(false);
+      setBulkMsg(err instanceof Error ? err.message : 'Falha ao excluir os lançamentos.');
+    } finally {
+      setBulkBusy(false);
     }
   };
 
@@ -239,6 +293,42 @@ export const TransactionsView: React.FC<Props> = ({
         </div>
       </div>
 
+      {bulkMsg && selectedIds.size === 0 && (
+        <div role="status" className="rounded-lg bg-[var(--color-income-soft)] px-3 py-2 text-xs text-[var(--color-income)]">
+          {bulkMsg}
+        </div>
+      )}
+
+      {selectedIds.size > 0 && (
+        <div
+          role="region"
+          aria-label="Ações da seleção"
+          className="sticky top-2 z-10 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--color-primary)]/30 bg-[var(--color-primary-soft)] px-4 py-3 text-sm text-[var(--color-text)] shadow-sm"
+        >
+          <div className="flex flex-wrap items-center gap-3">
+            <strong>{selectedIds.size} selecionado(s)</strong>
+            {pageAllSelected && filtered.length > selectedIds.size && (
+              <button
+                type="button"
+                onClick={selectAllFiltered}
+                className="focus-ring text-xs font-medium text-[var(--color-primary)] underline cursor-pointer"
+              >
+                Selecionar todos os {filtered.length} resultados do filtro
+              </button>
+            )}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="ghost" size="md" onClick={() => setSelectedIds(new Set())}>
+              Limpar seleção
+            </Button>
+            <Button variant="destructive" size="md" onClick={() => setBulkConfirmOpen(true)}>
+              <Trash2 className="h-4 w-4" aria-hidden="true" />
+              Excluir selecionados
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* Lista Mobile (Cards >= 72px) */}
       <div className="space-y-2 md:hidden">
         {filtered.length === 0 ? (
@@ -252,11 +342,20 @@ export const TransactionsView: React.FC<Props> = ({
             const cat = ev?.categoryId ? categoryMap.get(ev.categoryId) : undefined;
             const chips = renderNatureAndChips(m);
             return (
+              <div key={m.id} className="flex items-stretch gap-2">
+                <label className="flex items-center px-1 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    aria-label={`Selecionar ${m.description}`}
+                    checked={selectedIds.has(m.id)}
+                    onChange={() => toggleOne(m.id)}
+                    className="h-5 w-5 cursor-pointer"
+                  />
+                </label>
               <button
-                key={m.id}
                 type="button"
                 onClick={() => openDetail(m)}
-                className="focus-ring flex min-h-[76px] w-full flex-col justify-between rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4 text-left cursor-pointer"
+                className="focus-ring flex min-h-[76px] flex-1 min-w-0 flex-col justify-between rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4 text-left cursor-pointer"
               >
                 <div className="flex w-full items-start justify-between gap-3">
                   <span className="font-medium text-sm text-[var(--color-text)] leading-snug">{m.description}</span>
@@ -278,6 +377,7 @@ export const TransactionsView: React.FC<Props> = ({
                   </div>
                 </div>
               </button>
+              </div>
             );
           })
         )}
@@ -289,6 +389,19 @@ export const TransactionsView: React.FC<Props> = ({
           <table className="w-full text-left text-sm">
             <thead className="border-b border-[var(--color-border)] bg-[var(--color-surface-muted)] text-xs text-[var(--color-text-secondary)]">
               <tr>
+                <th className="w-10 px-4 py-3 font-medium">
+                  <input
+                    type="checkbox"
+                    aria-label="Selecionar todos os lançamentos desta página"
+                    checked={pageAllSelected}
+                    ref={(el) => {
+                      if (el) el.indeterminate = !pageAllSelected && pageSomeSelected;
+                    }}
+                    onChange={togglePage}
+                    disabled={pageIds.length === 0}
+                    className="h-4 w-4 cursor-pointer"
+                  />
+                </th>
                 <th className="px-4 py-3 font-medium">Data</th>
                 <th className="px-4 py-3 font-medium">Descrição</th>
                 <th className="px-4 py-3 font-medium">Conta</th>
@@ -302,7 +415,7 @@ export const TransactionsView: React.FC<Props> = ({
             <tbody className="divide-y divide-[var(--color-border)]">
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-8 text-center text-sm text-[var(--color-text-secondary)]">
+                  <td colSpan={9} className="px-4 py-8 text-center text-sm text-[var(--color-text-secondary)]">
                     Nenhum lançamento encontrado para os filtros aplicados.
                   </td>
                 </tr>
@@ -318,6 +431,15 @@ export const TransactionsView: React.FC<Props> = ({
                       onClick={() => openDetail(m)}
                       className="h-[54px] cursor-pointer transition-colors hover:bg-[var(--color-surface-muted)]/60"
                     >
+                      <td className="w-10 px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          aria-label={`Selecionar ${m.description}`}
+                          checked={selectedIds.has(m.id)}
+                          onChange={() => toggleOne(m.id)}
+                          className="h-4 w-4 cursor-pointer"
+                        />
+                      </td>
                       <td className="px-4 py-3 text-xs text-[var(--color-text-secondary)] whitespace-nowrap">
                         {formatCivilDateBR(m.effectiveDate)}
                       </td>
@@ -473,6 +595,16 @@ export const TransactionsView: React.FC<Props> = ({
           </div>
         </div>
       )}
+      <ConfirmDialog
+        open={bulkConfirmOpen}
+        title={`Excluir ${selectedIds.size} lançamento(s)?`}
+        message="Os lançamentos selecionados serão removidos das listas e dos saldos. Esta ação não pode ser desfeita pela tela."
+        confirmLabel="Excluir lançamentos"
+        destructive
+        loading={bulkBusy}
+        onConfirm={handleBulkDelete}
+        onCancel={() => setBulkConfirmOpen(false)}
+      />
     </div>
   );
 };
