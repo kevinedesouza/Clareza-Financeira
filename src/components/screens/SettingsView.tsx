@@ -2,6 +2,7 @@ import React, { useRef, useState } from 'react';
 import { SupabaseDiagnostics, ThemeMode, WorkspaceData } from '../../lib/domain/types';
 import { apiRequest } from '../../lib/api/client';
 import { Button, PWAInstallButton, StatusTag } from '../ui/Primitives';
+import { PaginationBar, usePagination } from '../ui/Pagination';
 import { SupabaseSqlModal } from '../modals/SupabaseSqlModal';
 import { Download, EyeOff, Moon, RefreshCw, Sun, Table2, Upload } from 'lucide-react';
 
@@ -92,6 +93,8 @@ export const SettingsView: React.FC<Props> = ({
     }
   };
 
+  const rulePg = usePagination(workspace.categoryRules);
+  const auditPg = usePagination(workspace.auditLogs);
   return (
     <div className="space-y-6">
       {statusMsg && (
@@ -223,6 +226,7 @@ export const SettingsView: React.FC<Props> = ({
               Salvar regra
             </Button>
           </form>
+          <>
           <ul className="divide-y divide-[var(--color-border)] text-xs">
             {workspace.categoryRules.map((r) => (
               <li key={r.id} className="flex justify-between py-2">
@@ -233,6 +237,8 @@ export const SettingsView: React.FC<Props> = ({
               </li>
             ))}
           </ul>
+          <PaginationBar page={rulePg.page} totalPages={rulePg.totalPages} totalItems={rulePg.totalItems} pageSize={rulePg.pageSize} setPage={rulePg.setPage} label="regras" />
+          </>
         </section>
       </div>
 
@@ -329,7 +335,7 @@ export const SettingsView: React.FC<Props> = ({
             {workspace.auditLogs.length === 0 ? (
               <p className="py-2 text-[var(--color-text-secondary)]">Nenhuma alteração registrada nesta sessão.</p>
             ) : (
-              workspace.auditLogs.slice(0, 12).map((log) => (
+              auditPg.pageItems.map((log) => (
                 <div key={log.id} className="flex justify-between gap-2 py-2">
                   <span className="text-[var(--color-text)]">
                     {log.entityType} · <strong>{log.action}</strong>
@@ -342,6 +348,7 @@ export const SettingsView: React.FC<Props> = ({
               ))
             )}
           </div>
+          <PaginationBar page={auditPg.page} totalPages={auditPg.totalPages} totalItems={auditPg.totalItems} pageSize={auditPg.pageSize} setPage={auditPg.setPage} label="registros" />
         </div>
       </section>
 

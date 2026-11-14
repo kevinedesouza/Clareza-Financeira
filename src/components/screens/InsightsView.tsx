@@ -2,6 +2,7 @@ import React from 'react';
 import { InsightItem } from '../../lib/domain/types';
 import { apiRequest } from '../../lib/api/client';
 import { Button, StatusTag } from '../ui/Primitives';
+import { PaginationBar, usePagination } from '../ui/Pagination';
 import { Lightbulb, X } from 'lucide-react';
 
 interface Props {
@@ -16,6 +17,7 @@ export const InsightsView: React.FC<Props> = ({ insights, onRefresh, onNavigateT
     await onRefresh();
   };
 
+  const insPg = usePagination(insights);
   return (
     <div className="space-y-6">
       <div>
@@ -33,6 +35,7 @@ export const InsightsView: React.FC<Props> = ({ insights, onRefresh, onNavigateT
           </p>
         </div>
       ) : (
+        <>
         <div className="space-y-4">
           {insights.map((ins) => (
             <article
@@ -82,6 +85,8 @@ export const InsightsView: React.FC<Props> = ({ insights, onRefresh, onNavigateT
             </article>
           ))}
         </div>
+        <PaginationBar page={insPg.page} totalPages={insPg.totalPages} totalItems={insPg.totalItems} pageSize={insPg.pageSize} setPage={insPg.setPage} label="insights" />
+        </>
       )}
     </div>
   );

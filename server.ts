@@ -62,6 +62,7 @@ import {
   sbSettleObligation,
   sbSoftDeleteMovement,
   sbUndoImportBatch,
+  sbDeleteImportBatch,
   sbUpdateAccount,
   sbUpdateImportDecisions,
   sbUpdateMovement,
@@ -1811,6 +1812,37 @@ async function startServer() {
       appendAudit(ws, 'import_batch', batch.id, 'undo', undefined, { revertedCount, preservedShared });
       saveStore(store);
       res.json({ batch, revertedCount, preservedShared });
+    })
+  );
+
+  // Exclusão de lote do histórico (somente lotes não confirmados; confirmados precisam ser revertidos)
+  app.delete(
+    '/api/imports/:id',
+    requireAuth,
+    asyncRoute(async (req: AuthedRequest, res) => {
+      if (req.useSupabase) {
+        const out = await sbDeleteImportBatch(req.sbUser!, req.sbAdmin || null, req.userId!, req.params.id);
+        res.status(out.status).json(out.payload);
+        return;
+      }
+
+      const ws = getWorkspace(req.userId!);
+      const idx = ws.importBatches.findIndex((b) => b.id === req.params.id && b.ownerId === req.userId);
+      if (idx < 0) {
+        res.status(404).json({ code: 'NOT_FOUND', message: 'Lote não encontrado.' });
+        return;
+      }
+      const batch = ws.importBatches[idx];
+      if (batch.status === 'committed') {
+        res.status(400).json({ code: 'CANNOT_DELETE', message: 'Reverta o lote antes de excluí-lo.' });
+        return;
+      }
+
+      ws.importBatches.splice(idx, 1);
+      ws.sourceLinks = ws.sourceLinks.filter((l) => l.batchId !== batch.id);
+      appendAudit(ws, 'import_batch', batch.id, 'delete', undefined, { fileName: batch.fileName });
+      saveStore(store);
+      res.json({ ok: true });
     })
   );
 

@@ -2596,3 +2596,42 @@ export async function sbDismissInsight(
 ): Promise<void> {
   await sbAppendAudit(sbAdmin, ownerId, 'insight_preference', ownerId, 'dismiss', undefined, { insightId });
 }
+
+/**
+ * Exclui um lote do histórico. Lotes confirmados precisam ser revertidos antes.
+ * As linhas do lote são removidas em cascata; o extrato original no Storage é removido em seguida.
+ */
+export async function sbDeleteImportBatch(
+  sbUser: SupabaseClient,
+  sbAdmin: SupabaseClient | null,
+  ownerId: string,
+  batchId: string
+): Promise<{ status: number; payload: Record<string, unknown> }> {
+  const { data: batchRow } = await sbUser
+    .from('import_batches')
+    .select('id,status,storage_path,file_name')
+    .eq('id', batchId)
+    .eq('owner_id', ownerId)
+    .maybeSingle();
+  if (!batchRow) {
+    return { status: 404, payload: { code: 'NOT_FOUND', message: 'Lote não encontrado.' } };
+  }
+  if (batchRow.status === 'committed') {
+    return { status: 400, payload: { code: 'CANNOT_DELETE', message: 'Reverta o lote antes de excluí-lo.' } };
+  }
+
+  const { error: delErr } = await sbUser.from('import_batches').delete().eq('id', batchId).eq('owner_id', ownerId);
+  if (delErr) {
+    return { status: 500, payload: { code: 'DELETE_FAILED', message: delErr.message } };
+  }
+
+  if (sbAdmin && batchRow.storage_path) {
+    const env = getSupabaseEnv();
+    await sbAdmin.storage.from(env.storageBucket).remove([batchRow.storage_path as string]);
+  }
+
+  await sbAppendAudit(sbAdmin, ownerId, 'import_batch', batchId, 'delete', undefined, {
+    fileName: String(batchRow.file_name || ''),
+  });
+  return { status: 200, payload: { ok: true } };
+}

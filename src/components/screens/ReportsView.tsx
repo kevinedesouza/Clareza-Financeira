@@ -4,6 +4,7 @@ import { computeAccountBalance, computeDashboardMetrics } from '../../lib/domain
 import { formatCivilDateBR } from '../../lib/domain/money';
 import { buildSafeCsvExport } from '../../lib/importers/csvParser';
 import { Button, FinancialValue, StatusTag } from '../ui/Primitives';
+import { PaginationBar, usePagination } from '../ui/Pagination';
 import { Download, Printer } from 'lucide-react';
 
 interface Props {
@@ -51,6 +52,8 @@ export const ReportsView: React.FC<Props> = ({ workspace, periodStart, periodEnd
     return { project: p, inc, exp, net: inc - exp };
   });
 
+  const projPg = usePagination(projectTotals);
+  const accRepPg = usePagination(workspace.accounts);
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -157,6 +160,7 @@ export const ReportsView: React.FC<Props> = ({ workspace, periodStart, periodEnd
               ))}
             </tbody>
           </table>
+          <PaginationBar page={accRepPg.page} totalPages={accRepPg.totalPages} totalItems={accRepPg.totalItems} pageSize={accRepPg.pageSize} setPage={accRepPg.setPage} label="contas" />
         </div>
       )}
 
@@ -171,7 +175,7 @@ export const ReportsView: React.FC<Props> = ({ workspace, periodStart, periodEnd
               </tr>
             </thead>
             <tbody className="divide-y divide-[var(--color-border)]">
-              {workspace.accounts.map((acc) => {
+              {accRepPg.pageItems.map((acc) => {
                 const s = computeAccountBalance(acc, workspace.movements, workspace.reconciliations, periodEnd);
                 return (
                   <tr key={acc.id}>
@@ -194,6 +198,7 @@ export const ReportsView: React.FC<Props> = ({ workspace, periodStart, periodEnd
           {projectTotals.length === 0 ? (
             <p className="text-sm text-[var(--color-text-secondary)]">Nenhum projeto atribuído a eventos.</p>
           ) : (
+            <>
             <div className="divide-y divide-[var(--color-border)] text-sm">
               {projectTotals.map((pt) => (
                 <div key={pt.project.id} className="flex flex-wrap items-center justify-between gap-2 py-3">
@@ -212,6 +217,8 @@ export const ReportsView: React.FC<Props> = ({ workspace, periodStart, periodEnd
                 </div>
               ))}
             </div>
+            <PaginationBar page={projPg.page} totalPages={projPg.totalPages} totalItems={projPg.totalItems} pageSize={projPg.pageSize} setPage={projPg.setPage} label="projetos" />
+            </>
           )}
           <p className="mt-4 text-xs text-[var(--color-text-secondary)]">
             ROI de investimentos permanece desativado até que haja registro explícito de capital aplicado e metodologia.

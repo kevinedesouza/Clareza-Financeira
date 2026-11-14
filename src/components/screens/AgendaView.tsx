@@ -4,6 +4,7 @@ import { computeObligationOpenCents, deriveObligationStatus } from '../../lib/do
 import { formatCivilDateBR, parseMoneyToCents, todayCivilSaoPaulo } from '../../lib/domain/money';
 import { apiRequest, createOperationKey } from '../../lib/api/client';
 import { Button, FinancialValue, StatusTag } from '../ui/Primitives';
+import { PaginationBar, usePagination } from '../ui/Pagination';
 import { Calendar, Check, Plus, Repeat, X } from 'lucide-react';
 
 interface Props {
@@ -134,6 +135,7 @@ export const AgendaView: React.FC<Props> = ({ workspace, todayDate, onRefresh })
     }
   };
 
+  const obPg = usePagination(obligations);
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -180,6 +182,7 @@ export const AgendaView: React.FC<Props> = ({ workspace, todayDate, onRefresh })
           </p>
         </div>
       ) : (
+        <>
         <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] divide-y divide-[var(--color-border)]">
           {obligations.map((ob) => {
             const open = computeObligationOpenCents(ob, workspace.settlements);
@@ -239,6 +242,8 @@ export const AgendaView: React.FC<Props> = ({ workspace, todayDate, onRefresh })
             );
           })}
         </div>
+        <PaginationBar page={obPg.page} totalPages={obPg.totalPages} totalItems={obPg.totalItems} pageSize={obPg.pageSize} setPage={obPg.setPage} label="obrigações" />
+        </>
       )}
 
       {/* Modal Agendar Conta ou Recorrência */}

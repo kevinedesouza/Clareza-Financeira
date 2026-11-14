@@ -4,6 +4,7 @@ import { formatCivilDateBR } from '../../lib/domain/money';
 import { buildSafeCsvExport } from '../../lib/importers/csvParser';
 import { apiRequest } from '../../lib/api/client';
 import { Button, FinancialValue, StatusTag } from '../ui/Primitives';
+import { PaginationBar, usePagination } from '../ui/Pagination';
 import { Download, Plus, Search, Trash2, X } from 'lucide-react';
 
 interface Props {
@@ -62,6 +63,7 @@ export const TransactionsView: React.FC<Props> = ({
       })
       .sort((a, b) => b.effectiveDate.localeCompare(a.effectiveDate));
   }, [workspace.movements, accountFilter, pendingOnly, categoryFilter, search, eventMap, accountMap, categoryMap]);
+  const pg = usePagination(filtered);
 
   const openDetail = (mov: AccountMovement) => {
     const ev = mov.eventId ? eventMap.get(mov.eventId) : undefined;
@@ -244,7 +246,7 @@ export const TransactionsView: React.FC<Props> = ({
             Nenhum lançamento encontrado para os filtros aplicados.
           </div>
         ) : (
-          filtered.map((m) => {
+          pg.pageItems.map((m) => {
             const ev = m.eventId ? eventMap.get(m.eventId) : undefined;
             const acc = accountMap.get(m.accountId);
             const cat = ev?.categoryId ? categoryMap.get(ev.categoryId) : undefined;
@@ -305,7 +307,7 @@ export const TransactionsView: React.FC<Props> = ({
                   </td>
                 </tr>
               ) : (
-                filtered.map((m) => {
+                pg.pageItems.map((m) => {
                   const ev = m.eventId ? eventMap.get(m.eventId) : undefined;
                   const acc = accountMap.get(m.accountId);
                   const cat = ev?.categoryId ? categoryMap.get(ev.categoryId) : undefined;
@@ -349,6 +351,7 @@ export const TransactionsView: React.FC<Props> = ({
         </div>
       </div>
 
+      <PaginationBar page={pg.page} totalPages={pg.totalPages} totalItems={pg.totalItems} pageSize={pg.pageSize} setPage={pg.setPage} label="lançamentos" />
       {/* Drawer lateral de detalhe e edição */}
       {selectedMov && (
         <div

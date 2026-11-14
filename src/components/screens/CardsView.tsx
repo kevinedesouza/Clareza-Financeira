@@ -4,6 +4,7 @@ import { computeCardDebtSummary } from '../../lib/domain/ledger';
 import { formatCivilDateBR, parseMoneyToCents, splitInstallments, todayCivilSaoPaulo } from '../../lib/domain/money';
 import { apiRequest, createOperationKey } from '../../lib/api/client';
 import { Button, FinancialValue, StatusTag } from '../ui/Primitives';
+import { PaginationBar, usePagination } from '../ui/Pagination';
 import { CreditCard, Plus, Receipt, X } from 'lucide-react';
 
 interface Props {
@@ -100,6 +101,7 @@ export const CardsView: React.FC<Props> = ({ workspace, onRefresh, onPayBill }) 
     }
   };
 
+  const cardPg = usePagination(cards);
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -122,6 +124,7 @@ export const CardsView: React.FC<Props> = ({ workspace, onRefresh, onPayBill }) 
           </p>
         </div>
       ) : (
+        <>
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           {cards.map((card) => {
             const acc = accountMap.get(card.accountId);
@@ -216,6 +219,8 @@ export const CardsView: React.FC<Props> = ({ workspace, onRefresh, onPayBill }) 
             );
           })}
         </div>
+        <PaginationBar page={cardPg.page} totalPages={cardPg.totalPages} totalItems={cardPg.totalItems} pageSize={cardPg.pageSize} setPage={cardPg.setPage} label="cartões" />
+        </>
       )}
 
       {/* Modal Novo Cartão */}

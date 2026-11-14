@@ -3,7 +3,8 @@ import { ImportBatch, ImportDecision, WorkspaceData } from '../../lib/domain/typ
 import { formatCivilDateBR } from '../../lib/domain/money';
 import { apiRequest, createOperationKey } from '../../lib/api/client';
 import { Button, FinancialValue, StatusTag } from '../ui/Primitives';
-import { CheckCircle2, FileSpreadsheet, RotateCcw, Upload } from 'lucide-react';
+import { PaginationBar, usePagination } from '../ui/Pagination';
+import { CheckCircle2, FileSpreadsheet, RotateCcw, Trash2, Upload } from 'lucide-react';
 
 interface Props {
   workspace: WorkspaceData;
@@ -13,43 +14,6 @@ interface Props {
 }
 
 const STEPS = ['Arquivo', 'Conta e formato', 'Revisão', 'Confirmação', 'Resultado'] as const;
-
-const SAMPLE_CSV = `Data;Descrição;Valor;ID
-14/11/2026;Padaria Pão Dourado;-38,50;CSV-101
-14/11/2026;Farmácia Popular;-64,90;CSV-102
-14/11/2026;Reembolso Viagem;250,00;CSV-103`;
-
-const SAMPLE_OFX = `OFXHEADER:100
-DATA:OFXSGML
-<OFX>
-<BANKMSGSRSV1>
-<STMTTRNRS>
-<STMTRS>
-<CURDEF>BRL
-<BANKACCTFROM>
-<BANKID>0341
-<ACCTID>4521-0
-<ACCTTYPE>CHECKING
-</BANKACCTFROM>
-<BANKTRANLIST>
-<STMTTRN>
-<TRNTYPE>DEBIT
-<DTPOSTED>20261113120000
-<TRNAMT>-145.00
-<FITID>OFX-9001
-<MEMO>SUPERMERCADO REAL
-</BANKTRANLIST>
-<STMTTRN>
-<TRNTYPE>CREDIT
-<DTPOSTED>20261114120000
-<TRNAMT>420.00
-<FITID>OFX-9002
-<MEMO>PIX CLIENTE CONSULTORIA
-</BANKTRANLIST>
-</STMTRS>
-</STMTTRNRS>
-</BANKMSGSRSV1>
-</OFX>`;
 
 export const ImportsView: React.FC<Props> = ({
   workspace,
@@ -72,6 +36,8 @@ export const ImportsView: React.FC<Props> = ({
   const [commitResult, setCommitResult] = useState<{ importedCount: number; linkedCount: number; ignoredCount: number } | null>(null);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const historyPg = usePagination(workspace.importBatches);
+  const rowsPg = usePagination(activeBatch?.rows ?? []);
 
   const privacy = workspace.profile.privacyMode;
   const accountMap = new Map(workspace.accounts.map((a) => [a.id, a]));
@@ -100,12 +66,6 @@ export const ImportsView: React.FC<Props> = ({
     if (!file) return;
     const buf = new Uint8Array(await file.arrayBuffer());
     loadFileBytes(file.name, buf);
-  };
-
-  const handleLoadSample = (kind: 'csv' | 'ofx') => {
-    const text = kind === 'csv' ? SAMPLE_CSV : SAMPLE_OFX;
-    const bytes = new TextEncoder().encode(text);
-    loadFileBytes(kind === 'csv' ? 'extrato-exemplo.csv' : 'extrato-exemplo.ofx', bytes);
   };
 
   const handlePrepare = async () => {
@@ -190,6 +150,21 @@ export const ImportsView: React.FC<Props> = ({
       setStep(4);
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : 'Não foi possível confirmar o lote.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteBatch = async (batchId: string, fileName: string) => {
+    if (!window.confirm(`Excluir o lote "${fileName}" do histórico? Esta ação não pode ser desfeita.`)) return;
+    setLoading(true);
+    setErrorMsg(null);
+    try {
+      await apiRequest(`/api/imports/${batchId}`, { method: 'DELETE' });
+      if (activeBatch?.id === batchId) setActiveBatch(null);
+      await onRefresh();
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : 'Erro ao excluir lote.');
     } finally {
       setLoading(false);
     }
@@ -300,12 +275,6 @@ export const ImportsView: React.FC<Props> = ({
                 <Button variant="primary" onClick={() => fileInputRef.current?.click()}>
                   <FileSpreadsheet className="h-4 w-4" aria-hidden="true" />
                   Escolher arquivo
-                </Button>
-                <Button variant="secondary" onClick={() => handleLoadSample('csv')}>
-                  Carregar CSV de teste
-                </Button>
-                <Button variant="secondary" onClick={() => handleLoadSample('ofx')}>
-                  Carregar OFX de teste
                 </Button>
               </div>
             </div>
@@ -423,7 +392,7 @@ export const ImportsView: React.FC<Props> = ({
             </div>
 
             <div className="space-y-2 max-h-96 overflow-y-auto">
-              {activeBatch.rows.map((row) => (
+              {rowsPg.pageItems.map((row) => (
                 <div
                   key={row.id}
                   className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3 text-xs space-y-2"
@@ -490,6 +459,7 @@ export const ImportsView: React.FC<Props> = ({
                 </div>
               ))}
             </div>
+            <PaginationBar page={rowsPg.page} totalPages={rowsPg.totalPages} totalItems={rowsPg.totalItems} pageSize={rowsPg.pageSize} setPage={rowsPg.setPage} label="linhas" />
 
             <div className="flex justify-end gap-2 pt-2 border-t border-[var(--color-border)]">
               <Button variant="ghost" onClick={() => setStep(1)}>
@@ -560,7 +530,7 @@ export const ImportsView: React.FC<Props> = ({
           <p className="text-sm text-[var(--color-text-secondary)]">Nenhum lote de importação registrado ainda.</p>
         ) : (
           <div className="divide-y divide-[var(--color-border)]">
-            {workspace.importBatches.map((b) => (
+            {historyPg.pageItems.map((b) => (
               <div key={b.id} className="flex flex-wrap items-center justify-between gap-3 py-3 text-xs">
                 <div>
                   <p className="font-semibold text-[var(--color-text)] text-sm">{b.fileName}</p>
@@ -586,11 +556,18 @@ export const ImportsView: React.FC<Props> = ({
                       Desfazer lote
                     </Button>
                   )}
+                  {b.status !== 'committed' && (
+                    <Button variant="ghost" onClick={() => handleDeleteBatch(b.id, b.fileName)} className="text-xs text-[var(--color-expense)]">
+                      <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                      Excluir
+                    </Button>
+                  )}
                 </div>
               </div>
             ))}
           </div>
         )}
+        <PaginationBar page={historyPg.page} totalPages={historyPg.totalPages} totalItems={historyPg.totalItems} pageSize={historyPg.pageSize} setPage={historyPg.setPage} label="lotes" />
       </div>
     </div>
   );

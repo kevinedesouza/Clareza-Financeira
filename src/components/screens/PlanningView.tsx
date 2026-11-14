@@ -4,6 +4,7 @@ import { computeDashboardMetrics, evaluateBudget } from '../../lib/domain/ledger
 import { formatCivilDateBR, parseMoneyToCents } from '../../lib/domain/money';
 import { apiRequest } from '../../lib/api/client';
 import { Button, FinancialValue, StatusTag } from '../ui/Primitives';
+import { PaginationBar, usePagination } from '../ui/Pagination';
 import { Plus, Target } from 'lucide-react';
 
 interface Props {
@@ -109,6 +110,8 @@ export const PlanningView: React.FC<Props> = ({ workspace, monthKey, todayDate, 
     }
   };
 
+  const goalPg = usePagination(workspace.goals);
+  const budgetPg = usePagination(monthBudgets);
   return (
     <div className="space-y-8">
       {msg && (
@@ -163,7 +166,8 @@ export const PlanningView: React.FC<Props> = ({ workspace, monthKey, todayDate, 
           {monthBudgets.length === 0 ? (
             <p className="text-sm text-[var(--color-text-secondary)]">Nenhum limite definido para {monthKey}.</p>
           ) : (
-            monthBudgets.map((b) => {
+            <>
+            {budgetPg.pageItems.map((b) => {
               const res = evaluateBudget(b, workspace.events, workspace.categories);
               const catName = categoryMap.get(b.categoryId)?.name ?? 'Categoria';
               return (
@@ -201,7 +205,9 @@ export const PlanningView: React.FC<Props> = ({ workspace, monthKey, todayDate, 
                   )}
                 </div>
               );
-            })
+            })}
+          <PaginationBar page={budgetPg.page} totalPages={budgetPg.totalPages} totalItems={budgetPg.totalItems} pageSize={budgetPg.pageSize} setPage={budgetPg.setPage} label="limites" />
+            </>
           )}
         </div>
       </section>
@@ -252,6 +258,7 @@ export const PlanningView: React.FC<Props> = ({ workspace, monthKey, todayDate, 
           </Button>
         </form>
 
+        <>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {workspace.goals.map((g) => {
             const pct = Math.min(100, Math.round((g.reservedCents / g.targetCents) * 100));
@@ -311,6 +318,8 @@ export const PlanningView: React.FC<Props> = ({ workspace, monthKey, todayDate, 
             );
           })}
         </div>
+        <PaginationBar page={goalPg.page} totalPages={goalPg.totalPages} totalItems={goalPg.totalItems} pageSize={goalPg.pageSize} setPage={goalPg.setPage} label="metas" />
+        </>
       </section>
     </div>
   );

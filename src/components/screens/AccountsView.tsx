@@ -4,6 +4,7 @@ import { computeAccountBalance } from '../../lib/domain/ledger';
 import { formatBRL, formatCivilDateBR, parseMoneyToCents, todayCivilSaoPaulo } from '../../lib/domain/money';
 import { apiRequest, createOperationKey } from '../../lib/api/client';
 import { Button, FinancialValue, StatusTag } from '../ui/Primitives';
+import { PaginationBar, usePagination } from '../ui/Pagination';
 import { ArrowLeftRight, CheckCircle2, Plus, Scale, X } from 'lucide-react';
 
 interface Props {
@@ -115,6 +116,7 @@ export const AccountsView: React.FC<Props> = ({ workspace, onRefresh, onOpenTran
     }
   };
 
+  const accPg = usePagination(accounts);
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -143,6 +145,7 @@ export const AccountsView: React.FC<Props> = ({ workspace, onRefresh, onOpenTran
           </p>
         </div>
       ) : (
+        <>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
           {accounts.map((acc) => {
             const summary = computeAccountBalance(acc, workspace.movements, workspace.reconciliations);
@@ -201,6 +204,8 @@ export const AccountsView: React.FC<Props> = ({ workspace, onRefresh, onOpenTran
             );
           })}
         </div>
+        <PaginationBar page={accPg.page} totalPages={accPg.totalPages} totalItems={accPg.totalItems} pageSize={accPg.pageSize} setPage={accPg.setPage} label="contas" />
+        </>
       )}
 
       {/* Modal Nova Conta */}
