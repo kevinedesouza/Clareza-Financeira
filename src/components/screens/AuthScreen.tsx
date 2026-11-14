@@ -84,9 +84,6 @@ export const AuthScreen: React.FC<Props> = ({ onAuthenticated }) => {
 
       <main className="mx-auto my-8 grid w-full max-w-5xl grid-cols-1 gap-8 lg:grid-cols-12 lg:items-center">
         <div className="lg:col-span-6 space-y-5">
-          <p className="text-xs font-semibold tracking-wide text-[var(--color-primary)]">
-            Gestão financeira pessoal · BRL · America/Sao_Paulo
-          </p>
           <h1 className="text-balance text-3xl md:text-4xl font-bold tracking-tight text-[var(--color-text)]">
             Clareza para decidir com números rastreáveis.
           </h1>
