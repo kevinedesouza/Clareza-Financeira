@@ -4,6 +4,7 @@ import { formatCivilDateBR } from '../../lib/domain/money';
 import { apiRequest, createOperationKey } from '../../lib/api/client';
 import { Button, FinancialValue, StatusTag } from '../ui/Primitives';
 import { PaginationBar, usePagination } from '../ui/Pagination';
+import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { CheckCircle2, FileSpreadsheet, RotateCcw, Trash2, Upload } from 'lucide-react';
 
 interface Props {
@@ -38,6 +39,7 @@ export const ImportsView: React.FC<Props> = ({
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const historyPg = usePagination(workspace.importBatches);
+  const [pendingDelete, setPendingDelete] = useState<{ id: string; fileName: string } | null>(null);
   const rowsPg = usePagination(activeBatch?.rows ?? []);
 
   const privacy = workspace.profile.privacyMode;
@@ -156,13 +158,15 @@ export const ImportsView: React.FC<Props> = ({
     }
   };
 
-  const handleDeleteBatch = async (batchId: string, fileName: string) => {
-    if (!window.confirm(`Excluir o lote "${fileName}" do histórico? Esta ação não pode ser desfeita.`)) return;
+  const handleDeleteBatch = async () => {
+    if (!pendingDelete) return;
+    const batchId = pendingDelete.id;
     setLoading(true);
     setErrorMsg(null);
     try {
       await apiRequest(`/api/imports/${batchId}`, { method: 'DELETE' });
       if (activeBatch?.id === batchId) setActiveBatch(null);
+      setPendingDelete(null);
       await onRefresh();
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : 'Erro ao excluir lote.');
@@ -572,7 +576,7 @@ export const ImportsView: React.FC<Props> = ({
                     </Button>
                   )}
                   {b.status !== 'committed' && (
-                    <Button variant="ghost" onClick={() => handleDeleteBatch(b.id, b.fileName)} className="text-xs text-[var(--color-expense)]">
+                    <Button variant="ghost" onClick={() => setPendingDelete({ id: b.id, fileName: b.fileName })} className="text-xs text-[var(--color-expense)]">
                       <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
                       Excluir
                     </Button>
@@ -584,6 +588,18 @@ export const ImportsView: React.FC<Props> = ({
         )}
         <PaginationBar page={historyPg.page} totalPages={historyPg.totalPages} totalItems={historyPg.totalItems} pageSize={historyPg.pageSize} setPage={historyPg.setPage} label="lotes" />
       </div>
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title="Excluir lote do histórico?"
+        message={pendingDelete ? `O lote "${pendingDelete.fileName}" será removido do histórico. Esta ação não pode ser desfeita.` : ''}
+        confirmLabel="Excluir lote"
+        destructive
+        loading={loading}
+        onConfirm={handleDeleteBatch}
+        onCancel={() => setPendingDelete(null)}
+      />
     </div>
   );
 };
+
