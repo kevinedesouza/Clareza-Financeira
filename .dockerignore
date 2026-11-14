@@ -10,3 +10,4 @@ Dockerfile
 package-lock.json
 *.log
 docs
+data
