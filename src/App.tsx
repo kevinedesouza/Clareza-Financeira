@@ -199,9 +199,6 @@ export default function App() {
   if (!authenticated || !workspace) {
     return (
       <AuthScreen
-        supabaseConfigured={supabaseConfigured}
-        supabaseStatus={supabaseStatus}
-        onRefreshSupabase={refreshSupabaseStatus}
         onAuthenticated={async () => {
           setAuthenticated(true);
           await loadWorkspace();

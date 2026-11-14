@@ -68,8 +68,7 @@ import {
 dotenv.config();
 
 const PORT = Number(process.env.PORT || 3000);
-const SUPABASE_NOT_CONFIGURED_MSG =
-  'Supabase não configurado. Defina SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, SUPABASE_SERVICE_ROLE_KEY e SUPABASE_DB_URL no ambiente.';
+const SUPABASE_NOT_CONFIGURED_MSG = 'Serviço de acesso indisponível no momento. Tente novamente em instantes.';
 interface AuthedRequest extends Request {
   userId?: string;
   userEmail?: string;
@@ -274,76 +273,6 @@ async function startServer() {
   );
 
   app.post(
-    '/api/auth/register',
-    asyncRoute(async (req, res) => {
-      const email = String(req.body?.email || '').trim().toLowerCase();
-      const password = String(req.body?.password || '');
-      const displayName = String(req.body?.displayName || '').trim() || 'Titular';
-
-      if (!email || !email.includes('@') || password.length < 6) {
-        res.status(400).json({
-          code: 'INVALID_CREDENTIALS',
-          message: 'Informe um e-mail válido e senha com pelo menos 6 caracteres.',
-        });
-        return;
-      }
-
-      if (!getSupabaseEnv().configured) {
-        res.status(503).json({ code: 'SUPABASE_NOT_CONFIGURED', message: SUPABASE_NOT_CONFIGURED_MSG });
-        return;
-      }
-
-      const sbAnon = createSupabaseAnonClient()!;
-      const { data, error } = await sbAnon.auth.signUp({
-        email,
-        password,
-        options: { data: { display_name: displayName } },
-      });
-
-      if (error) {
-        const isUnreachable =
-          error.name === 'AuthRetryableFetchError' ||
-          error.status === 0 ||
-          (typeof error.status === 'number' && error.status >= 500) ||
-          error.message.toLowerCase().includes('fetch failed');
-        if (isUnreachable) {
-          res.status(503).json({
-            code: 'SUPABASE_UNREACHABLE',
-            message:
-              'Não foi possível conectar ao servidor Supabase configurado. Verifique se o serviço está ativo e com HTTPS válido.',
-          });
-          return;
-        }
-        const isDup = error.message.toLowerCase().includes('already') || error.status === 422;
-        res.status(isDup ? 409 : 400).json({
-          code: isDup ? 'EMAIL_EXISTS' : 'SUPABASE_AUTH_ERROR',
-          message: isDup ? 'Já existe uma conta cadastrada com este e-mail.' : error.message,
-        });
-        return;
-      }
-
-      if (!data.session || !data.user) {
-        res.status(202).json({
-          authenticated: false,
-          needsEmailConfirmation: true,
-          message: 'Conta criada no Supabase. Confirme o link enviado para o seu e-mail antes de acessar.',
-        });
-        return;
-      }
-
-      const sbUser = createSupabaseUserClient(data.session.access_token)!;
-      const ws = await loadWorkspaceFromSupabase(sbUser, data.user.id, email, displayName);
-
-      setCookieHeader(res, [
-        buildCookie('clareza_sb_access', data.session.access_token, 60 * 60 * 24 * 7),
-        buildCookie('clareza_sb_refresh', data.session.refresh_token, 60 * 60 * 24 * 30),
-      ]);
-
-      res.status(201).json({ authenticated: true, profile: ws.profile });
-    })
-  );
-
-  app.post(
     '/api/auth/login',
     asyncRoute(async (req, res) => {
       const email = String(req.body?.email || '').trim().toLowerCase();
@@ -367,7 +296,7 @@ async function startServer() {
           res.status(503).json({
             code: 'SUPABASE_UNREACHABLE',
             message:
-              'Não foi possível conectar ao servidor Supabase configurado. Verifique se o serviço está ativo e com HTTPS válido.',
+              'Serviço de acesso indisponível no momento. Tente novamente em instantes.',
           });
           return;
         }
