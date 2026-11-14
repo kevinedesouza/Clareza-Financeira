@@ -46,6 +46,7 @@ export interface DashboardMetrics {
   periodEnd: string;
   liquidityBalanceCents: number;
   liquidityIsPartial: boolean;
+  cardDebtCents: number; // faturas em aberto de cartões (não entram no saldo em contas)
   freeAfterReservesCents: number;
   totalReservedInGoalsCents: number;
   incomeReceivedCents: number;
@@ -513,6 +514,7 @@ export function computeDashboardMetrics(
     periodEnd,
     liquidityBalanceCents,
     liquidityIsPartial,
+    cardDebtCents: liabilitiesCents,
     freeAfterReservesCents,
     totalReservedInGoalsCents,
     incomeReceivedCents,

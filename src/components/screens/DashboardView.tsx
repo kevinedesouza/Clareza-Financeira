@@ -91,7 +91,7 @@ export const DashboardView: React.FC<Props> = ({
         {/* Card de Saldo Disponível em destaque institucional azul profundo */}
         <div className="rounded-xl bg-[var(--color-brand)] p-5 md:p-6 text-white shadow-sm">
           <div className="flex items-center justify-between gap-2">
-            <span className="text-xs font-medium text-blue-100">Saldo líquido disponível</span>
+            <span className="text-xs font-medium text-blue-100">Saldo em contas</span>
             {metrics.liquidityIsPartial && (
               <span className="rounded-md bg-amber-400/20 px-2 py-0.5 text-[11px] font-medium text-amber-200">
                 Parcial
@@ -114,6 +114,22 @@ export const DashboardView: React.FC<Props> = ({
               className="focus-ring inline-flex items-center gap-1 font-medium text-white hover:underline cursor-pointer"
             >
               Contas
+              <ArrowRight className="h-3 w-3" aria-hidden="true" />
+            </button>
+          </div>
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-blue-100">
+            <span>
+              Faturas de cartão em aberto:{' '}
+              <strong className="text-white">
+                <FinancialValue cents={metrics.cardDebtCents} privacyMode={privacy} />
+              </strong>
+            </span>
+            <button
+              type="button"
+              onClick={() => onNavigate('cards')}
+              className="focus-ring inline-flex items-center gap-1 font-medium text-white hover:underline cursor-pointer"
+            >
+              Cartões
               <ArrowRight className="h-3 w-3" aria-hidden="true" />
             </button>
           </div>
