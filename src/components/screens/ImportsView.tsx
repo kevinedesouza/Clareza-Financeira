@@ -447,19 +447,34 @@ export const ImportsView: React.FC<Props> = ({
                   )}
 
                   <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-                    <select
-                      aria-label={`Categoria da linha ${row.rowIndex}`}
-                      value={row.suggestedCategoryId || ''}
-                      onChange={(e) => handleDecisionChange(row.id, row.decision, e.target.value)}
-                      className="focus-ring min-h-[36px] rounded-md border border-[var(--color-control-border)] bg-[var(--color-surface)] px-2"
-                    >
-                      <option value="">Sem categoria</option>
-                      {workspace.categories.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}
-                        </option>
-                      ))}
-                    </select>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <select
+                        aria-label={`Categoria da linha ${row.rowIndex}`}
+                        value={row.suggestedCategoryId || ''}
+                        onChange={(e) => handleDecisionChange(row.id, row.decision, e.target.value)}
+                        className="focus-ring min-h-[36px] rounded-md border border-[var(--color-control-border)] bg-[var(--color-surface)] px-2"
+                      >
+                        <option value="">Sem categoria</option>
+                        {workspace.categories.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </select>
+                      {row.suggestionSource === 'ai' && row.suggestedCategoryId && (
+                        <span
+                          title="Sugestão da IA: confirme ou troque a categoria"
+                          className="rounded-md bg-[var(--color-primary-soft)] px-2 py-0.5 text-[11px] font-medium text-[var(--color-primary)]"
+                        >
+                          IA{row.suggestionConfidence !== undefined ? ` · ${Math.round(row.suggestionConfidence * 100)}%` : ''}
+                        </span>
+                      )}
+                      {row.suggestionSource === 'rule' && row.suggestedCategoryId && (
+                        <span className="rounded-md bg-[var(--color-surface-muted)] px-2 py-0.5 text-[11px] font-medium text-[var(--color-text-secondary)]">
+                          Regra
+                        </span>
+                      )}
+                    </div>
 
                     <select
                       aria-label={`Decisão da linha ${row.rowIndex}`}

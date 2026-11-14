@@ -36,6 +36,7 @@ import {
 } from '../domain/ledger';
 import { splitInstallments, todayCivilSaoPaulo } from '../domain/money';
 import { processImportPayload } from '../../../workers/importWorker';
+import { aiConfig, suggestCategoriesWithAi, AiCategory, AiExample } from '../ai/categorizer';
 
 export interface SupabaseEnvConfig {
   url: string;
@@ -444,6 +445,9 @@ function mapImportRow(r: Record<string, any>): ImportRow {
     externalInstitution: r.external_institution || undefined,
     externalAccount: r.external_account || undefined,
     suggestedCategoryId: r.suggested_category_id || undefined,
+    suggestionSource: r.suggestion_source || undefined,
+    suggestionConfidence:
+      r.suggestion_confidence !== null && r.suggestion_confidence !== undefined ? Number(r.suggestion_confidence) : undefined,
     candidateMovementId: r.candidate_movement_id || undefined,
     candidateReason,
     decision: r.decision,
@@ -1633,6 +1637,17 @@ export async function sbPrepareImport(
   }
 
   const b = result.batch;
+  for (const r of b.rows) {
+    if (r.suggestedCategoryId) r.suggestionSource = 'rule';
+  }
+  const extraWarnings: string[] = [];
+  const ai = await applyAiCategorySuggestions(sbUser, ownerId, b.rows);
+  if (ai.error) {
+    extraWarnings.push(`Sugestões por IA indisponíveis nesta importação (${ai.error}). Categorize manualmente se preciso.`);
+  } else if (ai.applied > 0) {
+    extraWarnings.push(`${ai.applied} linha(s) receberam sugestão de categoria pela IA. Revise antes de confirmar.`);
+  }
+
   const { error: batchErr } = await sbUser.from('import_batches').insert({
     id: b.id,
     owner_id: ownerId,
@@ -1666,6 +1681,8 @@ export async function sbPrepareImport(
       external_institution: r.externalInstitution || null,
       external_account: r.externalAccount || null,
       suggested_category_id: r.suggestedCategoryId || null,
+      suggestion_source: r.suggestionSource || null,
+      suggestion_confidence: r.suggestionConfidence ?? null,
       candidate_movement_id: r.candidateMovementId || null,
       decision: r.decision,
       validation_errors: r.validationErrors,
@@ -1676,7 +1693,7 @@ export async function sbPrepareImport(
 
   await sbAppendAudit(sbAdmin, ownerId, 'import_batch', batchId, 'prepare', undefined, { totalRows: b.totalRows });
 
-  return { status: 201, payload: { batch: b, warnings: result.warnings } };
+  return { status: 201, payload: { batch: b, warnings: [...result.warnings, ...extraWarnings] } };
 }
 
 export async function sbUpdateImportDecisions(
@@ -2739,4 +2756,92 @@ export async function sbUpdateCard(
 
   await sbAppendAudit(sbAdmin, ownerId, 'card', cardId, 'update');
   return { status: 200, card: mapCard(updated) };
+}
+
+/**
+ * Sugestões de categoria pela IA para linhas que as regras não reconheceram.
+ * Linhas com a mesma descrição recebem a mesma sugestão (uma chamada por estabelecimento).
+ * Nunca bloqueia a importação: em caso de falha, devolve o erro para o aviso na prévia.
+ */
+async function applyAiCategorySuggestions(
+  sbUser: SupabaseClient,
+  ownerId: string,
+  rows: ImportRow[]
+): Promise<{ applied: number; error: string | null }> {
+  if (!aiConfig()) return { applied: 0, error: null };
+
+  const targets = rows.filter(
+    (r) =>
+      !r.suggestedCategoryId &&
+      !r.candidateMovementId &&
+      r.normalizedDescription &&
+      r.normalizedCents !== undefined &&
+      r.validationErrors.length === 0 &&
+      (r.decision === 'import_new' || r.decision === 'pending')
+  );
+  if (targets.length === 0) return { applied: 0, error: null };
+
+  const groups = new Map<string, ImportRow[]>();
+  for (const r of targets) {
+    const key = String(r.normalizedDescription).toLowerCase();
+    const list = groups.get(key) || [];
+    list.push(r);
+    groups.set(key, list);
+  }
+  const representatives = Array.from(groups.values()).map((g) => g[0]);
+
+  try {
+    const [{ data: catRows }, { data: exRows }] = await Promise.all([
+      sbUser.from('categories').select('id,name,kind').eq('owner_id', ownerId).eq('is_archived', false),
+      sbUser
+        .from('financial_events')
+        .select('description,category_id')
+        .eq('owner_id', ownerId)
+        .eq('is_deleted', false)
+        .not('category_id', 'is', null)
+        .order('created_at', { ascending: false })
+        .limit(400),
+    ]);
+
+    const categories: AiCategory[] = (catRows || [])
+      .filter((c: any) => c.kind !== 'opening')
+      .map((c: any) => ({ id: c.id, name: c.name, kind: c.kind }));
+
+    const seen = new Set<string>();
+    const examples: AiExample[] = [];
+    for (const e of exRows || []) {
+      const key = String((e as any).description || '').toLowerCase();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      examples.push({ description: (e as any).description, categoryId: (e as any).category_id });
+    }
+
+    const suggestions = await suggestCategoriesWithAi(
+      representatives.map((r) => ({
+        rowId: r.id,
+        description: r.normalizedDescription as string,
+        amountCents: r.normalizedCents as number,
+        date: r.normalizedDate || '',
+      })),
+      categories,
+      examples
+    );
+
+    const byRep = new Map(suggestions.map((s) => [s.rowId, s]));
+    let applied = 0;
+    for (const group of groups.values()) {
+      const s = byRep.get(group[0].id);
+      if (!s) continue;
+      for (const r of group) {
+        r.suggestedCategoryId = s.categoryId;
+        r.suggestionSource = 'ai';
+        r.suggestionConfidence = s.confidence;
+        applied += 1;
+      }
+    }
+    return { applied, error: null };
+  } catch (err) {
+    console.error('[ai-categorize]', err instanceof Error ? err.message : err);
+    return { applied: 0, error: err instanceof Error ? err.message : 'erro desconhecido' };
+  }
 }

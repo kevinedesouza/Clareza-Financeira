@@ -219,6 +219,8 @@ export interface ImportRow {
   externalInstitution?: string;
   externalAccount?: string;
   suggestedCategoryId?: string;
+  suggestionSource?: 'rule' | 'ai';
+  suggestionConfidence?: number;
   candidateMovementId?: string;
   candidateReason?: string;
   decision: ImportDecision;
