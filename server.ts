@@ -57,6 +57,7 @@ import {
   sbSettleObligation,
   sbSoftDeleteMovement,
   sbSoftDeleteMovementsBulk,
+  sbUpdateCard,
   sbUndoImportBatch,
   sbDeleteImportBatch,
   sbUpdateAccount,
@@ -564,6 +565,19 @@ async function startServer() {
 
       const out = await sbCreateCard(req.sbUser!, req.sbAdmin || null, req.userId!, req.body || {});
       res.status(201).json(out);
+    })
+  );
+
+  app.patch(
+    '/api/cards/:id',
+    requireAuth,
+    asyncRoute(async (req: AuthedRequest, res) => {
+      const result = await sbUpdateCard(req.sbUser!, req.sbAdmin || null, req.userId!, req.params.id, req.body || {});
+      if (result.status !== 200) {
+        res.status(result.status).json({ code: result.code, message: result.message });
+        return;
+      }
+      res.json({ card: result.card });
     })
   );
 

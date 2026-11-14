@@ -845,6 +845,12 @@ export async function sbUpdateAccount(
   if (typeof body.openingBalanceKnown === 'boolean') patch.opening_balance_known = body.openingBalanceKnown;
   if (Number.isInteger(body.openingBalanceCents)) patch.opening_balance_cents = body.openingBalanceCents;
   if (typeof body.openingDate === 'string') patch.opening_date = body.openingDate;
+  if (typeof body.institution === 'string') patch.institution = body.institution.trim() || null;
+  if (typeof body.maskedIdentifier === 'string') patch.masked_identifier = body.maskedIdentifier.trim() || null;
+  if (typeof body.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(body.color)) patch.color = body.color;
+  if (typeof body.includeInLiquidity === 'boolean' && existing.type !== 'credit_card') {
+    patch.include_in_liquidity = body.includeInLiquidity;
+  }
 
   const { data: updated, error: updErr } = await sbUser
     .from('accounts')
@@ -2647,4 +2653,90 @@ export async function sbSoftDeleteMovementsBulk(
     deleted += results.filter(Boolean).length;
   }
   return { deleted, skipped: unique.length - deleted };
+}
+
+/**
+ * Edita um cartão mantendo o mesmo id (o histórico de faturas e parcelas continua vinculado).
+ */
+export async function sbUpdateCard(
+  sbUser: SupabaseClient,
+  sbAdmin: SupabaseClient | null,
+  ownerId: string,
+  cardId: string,
+  body: Record<string, any>
+): Promise<{ status: number; card?: Card; code?: string; message?: string }> {
+  const { data: existing } = await sbUser
+    .from('cards')
+    .select('*')
+    .eq('id', cardId)
+    .eq('owner_id', ownerId)
+    .maybeSingle();
+  if (!existing) {
+    return { status: 404, code: 'NOT_FOUND', message: 'Cartão não encontrado.' };
+  }
+  if (typeof body.expectedVersion === 'number' && body.expectedVersion !== Number(existing.version)) {
+    return {
+      status: 409,
+      code: 'VERSION_CONFLICT',
+      message: 'Este cartão foi alterado em outro dispositivo. Recarregue para revisar.',
+    };
+  }
+
+  const patch: Record<string, unknown> = {
+    version: Number(existing.version) + 1,
+    updated_at: new Date().toISOString(),
+  };
+  const bad = (message: string) => ({ status: 400, code: 'VALIDATION_ERROR', message });
+
+  if (body.name !== undefined) {
+    const name = String(body.name).trim();
+    if (!name) return bad('Nome do cartão é obrigatório.');
+    patch.name = name;
+  }
+  if (body.maskedLast4 !== undefined) {
+    const digits = String(body.maskedLast4 ?? '').replace(/\D/g, '').slice(-4);
+    patch.masked_last4 = digits || null;
+  }
+  if (body.creditLimitCents !== undefined) {
+    if (!Number.isInteger(body.creditLimitCents) || body.creditLimitCents < 0) return bad('Limite inválido.');
+    patch.credit_limit_cents = body.creditLimitCents;
+  }
+  if (typeof body.limitVerified === 'boolean') patch.limit_verified = body.limitVerified;
+  if (body.closingDay !== undefined) {
+    const v = Number(body.closingDay);
+    if (!Number.isInteger(v) || v < 1 || v > 31) return bad('Dia de fechamento deve estar entre 1 e 31.');
+    patch.closing_day = v;
+  }
+  if (body.dueDay !== undefined) {
+    const v = Number(body.dueDay);
+    if (!Number.isInteger(v) || v < 1 || v > 31) return bad('Dia de vencimento deve estar entre 1 e 31.');
+    patch.due_day = v;
+  }
+  if (body.payingAccountId !== undefined) {
+    if (!body.payingAccountId) {
+      patch.paying_account_id = null;
+    } else {
+      const { data: payAcc } = await sbUser
+        .from('accounts')
+        .select('id, type')
+        .eq('id', body.payingAccountId)
+        .eq('owner_id', ownerId)
+        .maybeSingle();
+      if (!payAcc || payAcc.type === 'credit_card') return bad('Conta de pagamento inválida.');
+      patch.paying_account_id = payAcc.id;
+    }
+  }
+  if (typeof body.isArchived === 'boolean') patch.is_archived = body.isArchived;
+
+  const { data: updated, error } = await sbUser
+    .from('cards')
+    .update(patch)
+    .eq('id', cardId)
+    .eq('owner_id', ownerId)
+    .select('*')
+    .single();
+  if (error) throw new Error(error.message);
+
+  await sbAppendAudit(sbAdmin, ownerId, 'card', cardId, 'update');
+  return { status: 200, card: mapCard(updated) };
 }

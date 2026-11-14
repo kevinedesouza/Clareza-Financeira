@@ -5,7 +5,7 @@ import { formatCivilDateBR, parseMoneyToCents, splitInstallments, todayCivilSaoP
 import { apiRequest, createOperationKey } from '../../lib/api/client';
 import { Button, FinancialValue, StatusTag } from '../ui/Primitives';
 import { PaginationBar, usePagination } from '../ui/Pagination';
-import { CreditCard, Plus, Receipt, X } from 'lucide-react';
+import { CreditCard, Pencil, Plus, Receipt, X } from 'lucide-react';
 
 interface Props {
   workspace: WorkspaceData;
@@ -22,6 +22,18 @@ export const CardsView: React.FC<Props> = ({ workspace, onRefresh, onPayBill }) 
   const [dueDay, setDueDay] = useState('18');
   const [saving, setSaving] = useState(false);
 
+  // Edição de cartão (mantém o mesmo cartão: histórico de faturas e parcelas continua vinculado)
+  const [editCardId, setEditCardId] = useState<string | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editLast4, setEditLast4] = useState('');
+  const [editLimitStr, setEditLimitStr] = useState('');
+  const [editClosing, setEditClosing] = useState('');
+  const [editDue, setEditDue] = useState('');
+  const [editPayAccId, setEditPayAccId] = useState('');
+  const [editLimitVerified, setEditLimitVerified] = useState(false);
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+
   // Compra parcelada
   const [instCardId, setInstCardId] = useState<string | null>(null);
   const [instDesc, setInstDesc] = useState('');
@@ -34,6 +46,51 @@ export const CardsView: React.FC<Props> = ({ workspace, onRefresh, onPayBill }) 
   const privacy = workspace.profile.privacyMode;
   const accountMap = new Map(workspace.accounts.map((a) => [a.id, a]));
   const cards = workspace.cards.filter((c) => !c.isArchived);
+  const payableAccounts = workspace.accounts.filter((a) => !a.isArchived && a.type !== 'credit_card');
+
+  const openEditCard = (card: (typeof cards)[number]) => {
+    setEditCardId(card.id);
+    setEditName(card.name);
+    setEditLast4(card.maskedLast4 || '');
+    setEditLimitStr((card.creditLimitCents / 100).toFixed(2).replace('.', ','));
+    setEditClosing(String(card.closingDay));
+    setEditDue(String(card.dueDay));
+    setEditPayAccId(card.payingAccountId || '');
+    setEditLimitVerified(card.limitVerified);
+    setEditError(null);
+  };
+
+  const handleEditCard = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editCardId) return;
+    setEditError(null);
+    const limitCents = parseMoneyToCents(editLimitStr, ',');
+    if (limitCents === null || limitCents < 0) {
+      setEditError('Informe um limite válido (ex: 5.000,00).');
+      return;
+    }
+    setEditSaving(true);
+    try {
+      await apiRequest(`/api/cards/${editCardId}`, {
+        method: 'PATCH',
+        body: {
+          name: editName,
+          maskedLast4: editLast4,
+          creditLimitCents: limitCents,
+          limitVerified: editLimitVerified,
+          closingDay: Number(editClosing),
+          dueDay: Number(editDue),
+          payingAccountId: editPayAccId || null,
+        },
+      });
+      setEditCardId(null);
+      await onRefresh();
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : 'Não foi possível salvar o cartão.');
+    } finally {
+      setEditSaving(false);
+    }
+  };
 
   const handleCreateCard = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -214,6 +271,10 @@ export const CardsView: React.FC<Props> = ({ workspace, onRefresh, onPayBill }) 
                     <Plus className="h-4 w-4" aria-hidden="true" />
                     Compra parcelada
                   </Button>
+                  <Button variant="ghost" onClick={() => openEditCard(card)}>
+                    <Pencil className="h-4 w-4" aria-hidden="true" />
+                    Editar cartão
+                  </Button>
                 </div>
               </div>
             );
@@ -224,6 +285,144 @@ export const CardsView: React.FC<Props> = ({ workspace, onRefresh, onPayBill }) 
       )}
 
       {/* Modal Novo Cartão */}
+      {editCardId && (
+        <div
+          className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/50 p-0 md:p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="edit-card-title"
+        >
+          <div className="w-full max-w-md rounded-t-[20px] md:rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5 md:p-6 shadow-xl">
+            <div className="flex items-center justify-between border-b border-[var(--color-border)] pb-3">
+              <h3 id="edit-card-title" className="text-base font-semibold text-[var(--color-text)]">
+                Editar cartão
+              </h3>
+              <button
+                type="button"
+                onClick={() => setEditCardId(null)}
+                aria-label="Fechar"
+                className="focus-ring flex h-9 w-9 items-center justify-center rounded-lg text-[var(--color-text-secondary)] cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <form onSubmit={handleEditCard} className="mt-4 space-y-4">
+              <div>
+                <label htmlFor="edit-card-name" className="block text-xs font-medium text-[var(--color-text-secondary)] mb-1">
+                  Nome do cartão
+                </label>
+                <input
+                  id="edit-card-name"
+                  type="text"
+                  required
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  className="focus-ring w-full min-h-[44px] rounded-lg border border-[var(--color-control-border)] bg-[var(--color-surface)] px-3 text-sm"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label htmlFor="edit-card-last4" className="block text-xs font-medium text-[var(--color-text-secondary)] mb-1">
+                    4 últimos dígitos
+                  </label>
+                  <input
+                    id="edit-card-last4"
+                    type="text"
+                    maxLength={4}
+                    value={editLast4}
+                    onChange={(e) => setEditLast4(e.target.value.replace(/\D/g, ''))}
+                    className="focus-ring w-full min-h-[44px] rounded-lg border border-[var(--color-control-border)] bg-[var(--color-surface)] px-3 text-sm"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="edit-card-limit" className="block text-xs font-medium text-[var(--color-text-secondary)] mb-1">
+                    Limite (R$)
+                  </label>
+                  <input
+                    id="edit-card-limit"
+                    type="text"
+                    inputMode="decimal"
+                    value={editLimitStr}
+                    onChange={(e) => setEditLimitStr(e.target.value)}
+                    className="focus-ring financial-value w-full min-h-[44px] rounded-lg border border-[var(--color-control-border)] bg-[var(--color-surface)] px-3 text-sm"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label htmlFor="edit-card-close" className="block text-xs font-medium text-[var(--color-text-secondary)] mb-1">
+                    Dia fechamento
+                  </label>
+                  <input
+                    id="edit-card-close"
+                    type="number"
+                    min={1}
+                    max={31}
+                    value={editClosing}
+                    onChange={(e) => setEditClosing(e.target.value)}
+                    className="focus-ring w-full min-h-[44px] rounded-lg border border-[var(--color-control-border)] bg-[var(--color-surface)] px-3 text-sm"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="edit-card-due" className="block text-xs font-medium text-[var(--color-text-secondary)] mb-1">
+                    Dia vencimento
+                  </label>
+                  <input
+                    id="edit-card-due"
+                    type="number"
+                    min={1}
+                    max={31}
+                    value={editDue}
+                    onChange={(e) => setEditDue(e.target.value)}
+                    className="focus-ring w-full min-h-[44px] rounded-lg border border-[var(--color-control-border)] bg-[var(--color-surface)] px-3 text-sm"
+                  />
+                </div>
+              </div>
+              <div>
+                <label htmlFor="edit-card-pay" className="block text-xs font-medium text-[var(--color-text-secondary)] mb-1">
+                  Conta usada para pagar a fatura
+                </label>
+                <select
+                  id="edit-card-pay"
+                  value={editPayAccId}
+                  onChange={(e) => setEditPayAccId(e.target.value)}
+                  className="focus-ring w-full min-h-[44px] rounded-lg border border-[var(--color-control-border)] bg-[var(--color-surface)] px-3 text-sm"
+                >
+                  <option value="">Não definida</option>
+                  {payableAccounts.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <label className="flex items-center gap-2 text-sm text-[var(--color-text)] cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={editLimitVerified}
+                  onChange={(e) => setEditLimitVerified(e.target.checked)}
+                  className="h-4 w-4"
+                />
+                Limite confirmado pelo banco
+              </label>
+              {editError && (
+                <div role="alert" className="rounded-lg bg-[var(--color-expense-soft)] px-3 py-2 text-xs text-[var(--color-expense)]">
+                  {editError}
+                </div>
+              )}
+              <div className="flex justify-end gap-2 pt-2 border-t border-[var(--color-border)]">
+                <Button variant="ghost" onClick={() => setEditCardId(null)}>
+                  Cancelar
+                </Button>
+                <Button type="submit" variant="primary" loading={editSaving}>
+                  Salvar alterações
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {showCreateCard && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"

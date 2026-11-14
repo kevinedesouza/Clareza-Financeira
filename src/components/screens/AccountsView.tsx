@@ -5,7 +5,7 @@ import { formatBRL, formatCivilDateBR, parseMoneyToCents, todayCivilSaoPaulo } f
 import { apiRequest, createOperationKey } from '../../lib/api/client';
 import { Button, FinancialValue, StatusTag } from '../ui/Primitives';
 import { PaginationBar, usePagination } from '../ui/Pagination';
-import { ArrowLeftRight, CheckCircle2, Plus, Scale, X } from 'lucide-react';
+import { ArrowLeftRight, CheckCircle2, Pencil, Plus, Scale, X } from 'lucide-react';
 
 interface Props {
   workspace: WorkspaceData;
@@ -36,6 +36,18 @@ export const AccountsView: React.FC<Props> = ({ workspace, onRefresh, onOpenTran
 
   // Conciliação
   const [recAccountId, setRecAccountId] = useState<string | null>(null);
+
+  // Edição de conta
+  const [editAccId, setEditAccId] = useState<string | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editInstitution, setEditInstitution] = useState('');
+  const [editMasked, setEditMasked] = useState('');
+  const [editIncludeLiq, setEditIncludeLiq] = useState(true);
+  const [editOpeningKnown, setEditOpeningKnown] = useState(true);
+  const [editOpeningStr, setEditOpeningStr] = useState('0,00');
+  const [editOpeningDate, setEditOpeningDate] = useState(todayCivilSaoPaulo());
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
   const [recCutoff, setRecCutoff] = useState(todayCivilSaoPaulo());
   const [recBalanceStr, setRecBalanceStr] = useState('');
   const [recSaving, setRecSaving] = useState(false);
@@ -77,6 +89,50 @@ export const AccountsView: React.FC<Props> = ({ workspace, onRefresh, onOpenTran
       setErrorMsg(err instanceof Error ? err.message : 'Erro ao criar conta.');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const openEditAccount = (acc: (typeof accounts)[number]) => {
+    setEditAccId(acc.id);
+    setEditName(acc.name);
+    setEditInstitution(acc.institution || '');
+    setEditMasked(acc.maskedIdentifier || '');
+    setEditIncludeLiq(acc.includeInLiquidity);
+    setEditOpeningKnown(acc.openingBalanceKnown);
+    setEditOpeningStr((acc.openingBalanceCents / 100).toFixed(2).replace('.', ','));
+    setEditOpeningDate(acc.openingDate);
+    setEditError(null);
+  };
+
+  const handleEditAccount = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editAccId) return;
+    setEditError(null);
+    const cents = editOpeningKnown ? parseMoneyToCents(editOpeningStr, ',') : 0;
+    if (editOpeningKnown && cents === null) {
+      setEditError('Informe um saldo inicial válido (ex: 1.000,00).');
+      return;
+    }
+    setEditSaving(true);
+    try {
+      await apiRequest(`/api/accounts/${editAccId}`, {
+        method: 'PATCH',
+        body: {
+          name: editName,
+          institution: editInstitution,
+          maskedIdentifier: editMasked,
+          includeInLiquidity: editIncludeLiq,
+          openingBalanceKnown: editOpeningKnown,
+          openingBalanceCents: cents ?? 0,
+          openingDate: editOpeningDate,
+        },
+      });
+      setEditAccId(null);
+      await onRefresh();
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : 'Não foi possível salvar a conta.');
+    } finally {
+      setEditSaving(false);
     }
   };
 
@@ -187,6 +243,14 @@ export const AccountsView: React.FC<Props> = ({ workspace, onRefresh, onOpenTran
                         ? `Último mov.: ${formatCivilDateBR(summary.lastMovementDate)}`
                         : `Abertura em ${formatCivilDateBR(acc.openingDate)}`}
                   </span>
+                  <button
+                    type="button"
+                    onClick={() => openEditAccount(acc)}
+                    className="focus-ring inline-flex items-center gap-1 font-medium text-[var(--color-primary)] hover:underline cursor-pointer"
+                  >
+                    <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
+                    Editar
+                  </button>
                   <button
                     type="button"
                     onClick={() => {
@@ -353,6 +417,121 @@ export const AccountsView: React.FC<Props> = ({ workspace, onRefresh, onOpenTran
       )}
 
       {/* Modal Conciliação */}
+      {editAccId && (
+        <div
+          className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/50 p-0 md:p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="edit-account-title"
+        >
+          <div className="w-full max-w-md rounded-t-[20px] md:rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5 md:p-6 shadow-xl">
+            <div className="flex items-center justify-between border-b border-[var(--color-border)] pb-3">
+              <h2 id="edit-account-title" className="text-lg font-semibold text-[var(--color-text)]">
+                Editar conta
+              </h2>
+              <button
+                type="button"
+                onClick={() => setEditAccId(null)}
+                aria-label="Fechar janela"
+                className="focus-ring flex h-10 w-10 items-center justify-center rounded-lg text-[var(--color-text-secondary)] cursor-pointer"
+              >
+                <X className="h-5 w-5" aria-hidden="true" />
+              </button>
+            </div>
+            <form onSubmit={handleEditAccount} className="mt-4 space-y-4">
+              <div>
+                <label htmlFor="edit-acc-name" className="block text-xs font-medium text-[var(--color-text-secondary)] mb-1">
+                  Nome da conta
+                </label>
+                <input
+                  id="edit-acc-name"
+                  type="text"
+                  required
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  className="focus-ring w-full min-h-[44px] rounded-lg border border-[var(--color-control-border)] bg-[var(--color-surface)] px-3 text-sm"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label htmlFor="edit-acc-inst" className="block text-xs font-medium text-[var(--color-text-secondary)] mb-1">
+                    Instituição
+                  </label>
+                  <input
+                    id="edit-acc-inst"
+                    type="text"
+                    value={editInstitution}
+                    onChange={(e) => setEditInstitution(e.target.value)}
+                    className="focus-ring w-full min-h-[44px] rounded-lg border border-[var(--color-control-border)] bg-[var(--color-surface)] px-3 text-sm"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="edit-acc-masked" className="block text-xs font-medium text-[var(--color-text-secondary)] mb-1">
+                    Identificação
+                  </label>
+                  <input
+                    id="edit-acc-masked"
+                    type="text"
+                    value={editMasked}
+                    onChange={(e) => setEditMasked(e.target.value)}
+                    className="focus-ring w-full min-h-[44px] rounded-lg border border-[var(--color-control-border)] bg-[var(--color-surface)] px-3 text-sm"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label htmlFor="edit-acc-open" className="block text-xs font-medium text-[var(--color-text-secondary)] mb-1">
+                    Saldo de abertura (R$)
+                  </label>
+                  <input
+                    id="edit-acc-open"
+                    type="text"
+                    inputMode="decimal"
+                    disabled={!editOpeningKnown}
+                    value={editOpeningStr}
+                    onChange={(e) => setEditOpeningStr(e.target.value)}
+                    className="focus-ring financial-value w-full min-h-[44px] rounded-lg border border-[var(--color-control-border)] bg-[var(--color-surface)] px-3 text-sm disabled:opacity-50"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="edit-acc-date" className="block text-xs font-medium text-[var(--color-text-secondary)] mb-1">
+                    Data de abertura
+                  </label>
+                  <input
+                    id="edit-acc-date"
+                    type="date"
+                    value={editOpeningDate}
+                    onChange={(e) => setEditOpeningDate(e.target.value)}
+                    className="focus-ring w-full min-h-[44px] rounded-lg border border-[var(--color-control-border)] bg-[var(--color-surface)] px-3 text-sm"
+                  />
+                </div>
+              </div>
+              <label className="flex items-center gap-2 text-sm text-[var(--color-text)] cursor-pointer">
+                <input type="checkbox" checked={editOpeningKnown} onChange={(e) => setEditOpeningKnown(e.target.checked)} className="h-4 w-4" />
+                Saldo de abertura conhecido
+              </label>
+              <label className="flex items-center gap-2 text-sm text-[var(--color-text)] cursor-pointer">
+                <input type="checkbox" checked={editIncludeLiq} onChange={(e) => setEditIncludeLiq(e.target.checked)} className="h-4 w-4" />
+                Incluir no saldo em contas
+              </label>
+              {editError && (
+                <div role="alert" className="rounded-lg bg-[var(--color-expense-soft)] px-3 py-2 text-xs text-[var(--color-expense)]">
+                  {editError}
+                </div>
+              )}
+              <div className="flex justify-end gap-2 pt-2 border-t border-[var(--color-border)]">
+                <Button variant="ghost" onClick={() => setEditAccId(null)}>
+                  Cancelar
+                </Button>
+                <Button type="submit" variant="primary" loading={editSaving}>
+                  Salvar alterações
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {recAccountId && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
