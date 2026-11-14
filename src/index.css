@@ -1,0 +1,94 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --color-brand: #172554;
+  --color-primary: #2955D9;
+  --color-primary-hover: #2348B8;
+  --color-primary-pressed: #1E3A8A;
+  --color-primary-soft: #EEF2FF;
+  --color-on-primary: #FFFFFF;
+  --color-bg: #F5F7FB;
+  --color-surface: #FFFFFF;
+  --color-surface-muted: #F1F5F9;
+  --color-text: #162033;
+  --color-text-secondary: #526078;
+  --color-border: #E2E8F0;
+  --color-control-border: #7B8798;
+  --color-income: #087F5B;
+  --color-expense: #B42318;
+  --color-warning: #946200;
+  --color-transfer: #2955D9;
+  --color-goal: #6D28D9;
+  --color-income-soft: #ECFDF5;
+  --color-expense-soft: #FEF3F2;
+  --color-warning-soft: #FFFBEB;
+  --color-goal-soft: #F5F3FF;
+  --radius-control: 8px;
+  --radius-card: 12px;
+  --radius-dialog: 16px;
+  --motion-fast: 150ms;
+  --motion-base: 220ms;
+}
+
+.dark,
+[data-theme="dark"] {
+  --color-brand: #0F172A;
+  --color-primary: #8BABFF;
+  --color-primary-hover: #A8BFFF;
+  --color-primary-pressed: #7295EF;
+  --color-primary-soft: #1A2D50;
+  --color-on-primary: #0B1220;
+  --color-bg: #0B1220;
+  --color-surface: #131D2F;
+  --color-surface-muted: #1C2940;
+  --color-text: #E7EDF7;
+  --color-text-secondary: #A8B5C9;
+  --color-border: #30415B;
+  --color-control-border: #73849D;
+  --color-income: #6EE7B7;
+  --color-expense: #FDA29B;
+  --color-warning: #FCD34D;
+  --color-transfer: #8BABFF;
+  --color-goal: #C4B5FD;
+  --color-income-soft: #102F2A;
+  --color-expense-soft: #351F29;
+  --color-warning-soft: #322B18;
+  --color-goal-soft: #2A2142;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-fast: 0ms;
+    --motion-base: 0ms;
+  }
+}
+
+html, body {
+  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.font-mono-ref {
+  font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.financial-value {
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+.text-balance {
+  text-wrap: balance;
+}
+
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.focus-ring:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}

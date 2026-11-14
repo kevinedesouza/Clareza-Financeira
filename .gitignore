@@ -1,0 +1,17 @@
+# dependências e builds
+node_modules/
+dist/
+dev-dist/
+*.local
+
+# segredos — nunca versionar
+.env
+.env.*
+!.env.example
+
+# lockfile gerado por npm (o projeto usa bun.lock)
+package-lock.json
+
+# logs e sistema
+*.log
+.DS_Store

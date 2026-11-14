@@ -1,0 +1,6 @@
+{
+  "name": "Clareza Financeira",
+  "description": "Sistema pessoal de gestão financeira profissional com controle de contas, cartões, importação CSV/OFX, agenda, orçamentos, metas e insights verificáveis.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

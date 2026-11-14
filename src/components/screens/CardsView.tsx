@@ -1,0 +1,465 @@
+import React, { useState } from 'react';
+import { WorkspaceData } from '../../lib/domain/types';
+import { computeCardDebtSummary } from '../../lib/domain/ledger';
+import { formatCivilDateBR, parseMoneyToCents, splitInstallments, todayCivilSaoPaulo } from '../../lib/domain/money';
+import { apiRequest, createOperationKey } from '../../lib/api/client';
+import { Button, FinancialValue, StatusTag } from '../ui/Primitives';
+import { CreditCard, Plus, Receipt, X } from 'lucide-react';
+
+interface Props {
+  workspace: WorkspaceData;
+  onRefresh: () => Promise<void>;
+  onPayBill: (cardAccountId: string) => void;
+}
+
+export const CardsView: React.FC<Props> = ({ workspace, onRefresh, onPayBill }) => {
+  const [showCreateCard, setShowCreateCard] = useState(false);
+  const [cardName, setCardName] = useState('');
+  const [last4, setLast4] = useState('');
+  const [limitStr, setLimitStr] = useState('5.000,00');
+  const [closingDay, setClosingDay] = useState('10');
+  const [dueDay, setDueDay] = useState('18');
+  const [saving, setSaving] = useState(false);
+
+  // Compra parcelada
+  const [instCardId, setInstCardId] = useState<string | null>(null);
+  const [instDesc, setInstDesc] = useState('');
+  const [instTotalStr, setInstTotalStr] = useState('');
+  const [instCount, setInstCount] = useState('3');
+  const [instDate, setInstDate] = useState(todayCivilSaoPaulo());
+  const [instCatId, setInstCatId] = useState('');
+  const [instError, setInstError] = useState<string | null>(null);
+
+  const privacy = workspace.profile.privacyMode;
+  const accountMap = new Map(workspace.accounts.map((a) => [a.id, a]));
+  const cards = workspace.cards.filter((c) => !c.isArchived);
+
+  const handleCreateCard = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const limitCents = parseMoneyToCents(limitStr, ',') ?? 0;
+    setSaving(true);
+    try {
+      await apiRequest('/api/cards', {
+        method: 'POST',
+        body: {
+          name: cardName,
+          maskedLast4: last4,
+          creditLimitCents: limitCents,
+          limitVerified: false,
+          closingDay: Number(closingDay),
+          dueDay: Number(dueDay),
+        },
+      });
+      await onRefresh();
+      setShowCreateCard(false);
+      setCardName('');
+      setLast4('');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const previewParts = (() => {
+    const cents = parseMoneyToCents(instTotalStr, ',');
+    const count = Number(instCount);
+    if (!cents || cents <= 0 || !Number.isInteger(count) || count < 1 || count > 48) return null;
+    return splitInstallments(cents, count);
+  })();
+
+  const handleCreateInstallment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!instCardId) return;
+    setInstError(null);
+    const totalCents = parseMoneyToCents(instTotalStr, ',');
+    const count = Number(instCount);
+    if (!totalCents || totalCents <= 0 || !Number.isInteger(count) || count < 1) {
+      setInstError('Informe um valor total positivo e quantidade de parcelas válida.');
+      return;
+    }
+    setSaving(true);
+    try {
+      await apiRequest(`/api/cards/${instCardId}/installments`, {
+        method: 'POST',
+        idempotencyKey: createOperationKey(),
+        body: {
+          description: instDesc,
+          totalCents,
+          installmentCount: count,
+          purchaseDate: instDate,
+          categoryId: instCatId || undefined,
+        },
+      });
+      await onRefresh();
+      setInstCardId(null);
+      setInstDesc('');
+      setInstTotalStr('');
+    } catch (err) {
+      setInstError(err instanceof Error ? err.message : 'Erro ao registrar compra parcelada.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold text-[var(--color-text)]">Cartões e faturas</h2>
+          <p className="text-xs text-[var(--color-text-secondary)]">
+            Compras geram gasto na competência; pagamento de fatura liquida o passivo sem duplicar consumo.
+          </p>
+        </div>
+        <Button variant="primary" onClick={() => setShowCreateCard(true)}>
+          <Plus className="h-4 w-4" aria-hidden="true" />
+          Novo cartão
+        </Button>
+      </div>
+
+      {cards.length === 0 ? (
+        <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-8 text-center">
+          <p className="text-sm text-[var(--color-text-secondary)]">
+            Nenhum cartão cadastrado. Cadastre seu cartão para acompanhar faturas, limite estimado e compras parceladas.
+          </p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          {cards.map((card) => {
+            const acc = accountMap.get(card.accountId);
+            if (!acc) return null;
+            const summary = computeCardDebtSummary(
+              card,
+              acc,
+              workspace.movements,
+              workspace.obligations,
+              workspace.settlements
+            );
+            const cardObs = workspace.obligations.filter(
+              (o) => o.cardId === card.id && o.status !== 'canceled' && o.status !== 'settled'
+            );
+
+            return (
+              <div
+                key={card.id}
+                className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5 md:p-6 space-y-4"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[var(--color-brand)] text-white">
+                      <CreditCard className="h-5 w-5" aria-hidden="true" />
+                    </div>
+                    <div>
+                      <h3 className="text-base font-semibold text-[var(--color-text)]">{card.name}</h3>
+                      <p className="text-xs text-[var(--color-text-secondary)]">
+                        {card.maskedLast4 ? `Final ${card.maskedLast4} · ` : ''}
+                        Fechamento dia {card.closingDay} · Vencimento dia {card.dueDay}
+                      </p>
+                    </div>
+                  </div>
+                  {!card.limitVerified && <StatusTag label="Limite estimado" tone="neutral" />}
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 border-y border-[var(--color-border)] py-4">
+                  <div>
+                    <span className="text-xs text-[var(--color-text-secondary)]">Dívida / Fatura atual</span>
+                    <div className="mt-1 text-lg font-bold text-[var(--color-text)]">
+                      <FinancialValue cents={summary.debtCents} privacyMode={privacy} />
+                    </div>
+                    {summary.creditInFavorCents > 0 && (
+                      <p className="text-[11px] text-[var(--color-income)]">
+                        Crédito a favor: <FinancialValue cents={summary.creditInFavorCents} privacyMode={privacy} />
+                      </p>
+                    )}
+                  </div>
+                  <div>
+                    <span className="text-xs text-[var(--color-text-secondary)]">Disponível (estimativa)</span>
+                    <div className="mt-1 text-lg font-semibold text-[var(--color-text)]">
+                      <FinancialValue cents={summary.availableEstimatedCents} privacyMode={privacy} />
+                    </div>
+                  </div>
+                  <div>
+                    <span className="text-xs text-[var(--color-text-secondary)]">Parcelas futuras</span>
+                    <div className="mt-1 text-lg font-semibold text-[var(--color-text-secondary)]">
+                      <FinancialValue cents={summary.futureInstallmentsCents} privacyMode={privacy} />
+                    </div>
+                  </div>
+                </div>
+
+                {cardObs.length > 0 && (
+                  <div>
+                    <p className="mb-2 text-xs font-medium text-[var(--color-text-secondary)]">
+                      Próximos lançamentos/parcelas no cartão
+                    </p>
+                    <ul className="space-y-1.5 text-xs">
+                      {cardObs.slice(0, 3).map((ob) => (
+                        <li key={ob.id} className="flex justify-between text-[var(--color-text)]">
+                          <span>
+                            {formatCivilDateBR(ob.dueDate)} · {ob.description}
+                          </span>
+                          <FinancialValue cents={ob.originalCents} privacyMode={privacy} className="font-medium" />
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                <div className="flex flex-wrap gap-2 pt-1">
+                  <Button variant="primary" onClick={() => onPayBill(card.accountId)}>
+                    <Receipt className="h-4 w-4" aria-hidden="true" />
+                    Registrar pagamento de fatura
+                  </Button>
+                  <Button variant="secondary" onClick={() => setInstCardId(card.id)}>
+                    <Plus className="h-4 w-4" aria-hidden="true" />
+                    Compra parcelada
+                  </Button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Modal Novo Cartão */}
+      {showCreateCard && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="new-card-title"
+        >
+          <div className="w-full max-w-md rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6 shadow-xl">
+            <div className="flex items-center justify-between border-b border-[var(--color-border)] pb-3">
+              <h3 id="new-card-title" className="text-base font-semibold text-[var(--color-text)]">
+                Cadastrar cartão de crédito
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowCreateCard(false)}
+                aria-label="Fechar"
+                className="focus-ring flex h-9 w-9 items-center justify-center rounded-lg text-[var(--color-text-secondary)] cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <form onSubmit={handleCreateCard} className="mt-4 space-y-4">
+              <div>
+                <label htmlFor="card-name" className="block text-xs font-medium text-[var(--color-text-secondary)] mb-1">
+                  Nome do cartão
+                </label>
+                <input
+                  id="card-name"
+                  type="text"
+                  required
+                  placeholder="Ex.: Cartão Platinum"
+                  value={cardName}
+                  onChange={(e) => setCardName(e.target.value)}
+                  className="focus-ring w-full min-h-[44px] rounded-lg border border-[var(--color-control-border)] bg-[var(--color-surface)] px-3 text-sm"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label htmlFor="card-last4" className="block text-xs font-medium text-[var(--color-text-secondary)] mb-1">
+                    4 últimos dígitos
+                  </label>
+                  <input
+                    id="card-last4"
+                    type="text"
+                    maxLength={4}
+                    placeholder="1234"
+                    value={last4}
+                    onChange={(e) => setLast4(e.target.value.replace(/\D/g, ''))}
+                    className="focus-ring w-full min-h-[44px] rounded-lg border border-[var(--color-control-border)] bg-[var(--color-surface)] px-3 text-sm"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="card-limit" className="block text-xs font-medium text-[var(--color-text-secondary)] mb-1">
+                    Limite informado (R$)
+                  </label>
+                  <input
+                    id="card-limit"
+                    type="text"
+                    inputMode="decimal"
+                    value={limitStr}
+                    onChange={(e) => setLimitStr(e.target.value)}
+                    className="focus-ring financial-value w-full min-h-[44px] rounded-lg border border-[var(--color-control-border)] bg-[var(--color-surface)] px-3 text-sm"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label htmlFor="card-close" className="block text-xs font-medium text-[var(--color-text-secondary)] mb-1">
+                    Dia fechamento
+                  </label>
+                  <input
+                    id="card-close"
+                    type="number"
+                    min={1}
+                    max={31}
+                    value={closingDay}
+                    onChange={(e) => setClosingDay(e.target.value)}
+                    className="focus-ring w-full min-h-[44px] rounded-lg border border-[var(--color-control-border)] bg-[var(--color-surface)] px-3 text-sm"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="card-due" className="block text-xs font-medium text-[var(--color-text-secondary)] mb-1">
+                    Dia vencimento
+                  </label>
+                  <input
+                    id="card-due"
+                    type="number"
+                    min={1}
+                    max={31}
+                    value={dueDay}
+                    onChange={(e) => setDueDay(e.target.value)}
+                    className="focus-ring w-full min-h-[44px] rounded-lg border border-[var(--color-control-border)] bg-[var(--color-surface)] px-3 text-sm"
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end gap-2 pt-2 border-t border-[var(--color-border)]">
+                <Button variant="ghost" onClick={() => setShowCreateCard(false)}>
+                  Cancelar
+                </Button>
+                <Button type="submit" variant="primary" loading={saving}>
+                  Salvar cartão
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Compra Parcelada */}
+      {instCardId && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="inst-title"
+        >
+          <div className="w-full max-w-md rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6 shadow-xl">
+            <div className="flex items-center justify-between border-b border-[var(--color-border)] pb-3">
+              <h3 id="inst-title" className="text-base font-semibold text-[var(--color-text)]">
+                Compra parcelada no cartão
+              </h3>
+              <button
+                type="button"
+                onClick={() => setInstCardId(null)}
+                aria-label="Fechar"
+                className="focus-ring flex h-9 w-9 items-center justify-center rounded-lg text-[var(--color-text-secondary)] cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <form onSubmit={handleCreateInstallment} className="mt-4 space-y-4">
+              <div>
+                <label htmlFor="inst-desc" className="block text-xs font-medium text-[var(--color-text-secondary)] mb-1">
+                  Descrição da compra
+                </label>
+                <input
+                  id="inst-desc"
+                  type="text"
+                  required
+                  placeholder="Ex.: Notebook, Passagem aérea"
+                  value={instDesc}
+                  onChange={(e) => setInstDesc(e.target.value)}
+                  className="focus-ring w-full min-h-[44px] rounded-lg border border-[var(--color-control-border)] bg-[var(--color-surface)] px-3 text-sm"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label htmlFor="inst-total" className="block text-xs font-medium text-[var(--color-text-secondary)] mb-1">
+                    Valor total (R$)
+                  </label>
+                  <input
+                    id="inst-total"
+                    type="text"
+                    inputMode="decimal"
+                    required
+                    placeholder="1.000,00"
+                    value={instTotalStr}
+                    onChange={(e) => setInstTotalStr(e.target.value)}
+                    className="focus-ring financial-value w-full min-h-[44px] rounded-lg border border-[var(--color-control-border)] bg-[var(--color-surface)] px-3 text-sm font-semibold"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="inst-qty" className="block text-xs font-medium text-[var(--color-text-secondary)] mb-1">
+                    Parcelas
+                  </label>
+                  <input
+                    id="inst-qty"
+                    type="number"
+                    min={1}
+                    max={48}
+                    required
+                    value={instCount}
+                    onChange={(e) => setInstCount(e.target.value)}
+                    className="focus-ring w-full min-h-[44px] rounded-lg border border-[var(--color-control-border)] bg-[var(--color-surface)] px-3 text-sm"
+                  />
+                </div>
+              </div>
+
+              {previewParts && (
+                <div className="rounded-lg bg-[var(--color-surface-muted)] p-3 text-xs text-[var(--color-text-secondary)]">
+                  Distribuição exata em centavos:{' '}
+                  <strong className="text-[var(--color-text)]">
+                    {previewParts
+                      .slice(0, 4)
+                      .map((c) => `R$ ${(c / 100).toFixed(2).replace('.', ',')}`)
+                      .join(' + ')}
+                    {previewParts.length > 4 ? ` (+${previewParts.length - 4})` : ''}
+                  </strong>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label htmlFor="inst-date" className="block text-xs font-medium text-[var(--color-text-secondary)] mb-1">
+                    Data da compra
+                  </label>
+                  <input
+                    id="inst-date"
+                    type="date"
+                    value={instDate}
+                    onChange={(e) => setInstDate(e.target.value)}
+                    className="focus-ring w-full min-h-[44px] rounded-lg border border-[var(--color-control-border)] bg-[var(--color-surface)] px-3 text-sm"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="inst-cat" className="block text-xs font-medium text-[var(--color-text-secondary)] mb-1">
+                    Categoria
+                  </label>
+                  <select
+                    id="inst-cat"
+                    value={instCatId}
+                    onChange={(e) => setInstCatId(e.target.value)}
+                    className="focus-ring w-full min-h-[44px] rounded-lg border border-[var(--color-control-border)] bg-[var(--color-surface)] px-3 text-sm"
+                  >
+                    <option value="">Selecionar</option>
+                    {workspace.categories
+                      .filter((c) => c.kind === 'expense')
+                      .map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+              </div>
+
+              {instError && <p className="text-xs text-[var(--color-expense)]">{instError}</p>}
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-[var(--color-border)]">
+                <Button variant="ghost" onClick={() => setInstCardId(null)}>
+                  Cancelar
+                </Button>
+                <Button type="submit" variant="primary" loading={saving}>
+                  Registrar parcelamento
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
