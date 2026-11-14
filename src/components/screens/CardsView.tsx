@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { WorkspaceData } from '../../lib/domain/types';
+import { AccountMovement, WorkspaceData } from '../../lib/domain/types';
 import { computeCardDebtSummary } from '../../lib/domain/ledger';
 import { formatCivilDateBR, parseMoneyToCents, splitInstallments, todayCivilSaoPaulo } from '../../lib/domain/money';
 import { apiRequest, createOperationKey } from '../../lib/api/client';
@@ -12,6 +12,65 @@ interface Props {
   onRefresh: () => Promise<void>;
   onPayBill: (cardAccountId: string) => void;
 }
+
+/** Lançamentos vinculados a um cartão, com status de conciliação e paginação própria. */
+const CardLedger: React.FC<{ cardId: string; movements: AccountMovement[]; privacy: boolean }> = ({
+  cardId,
+  movements,
+  privacy,
+}) => {
+  const pg = usePagination(movements, 10, `cartao-lanc-${cardId}`);
+  const unreconciled = movements.filter((m) => m.reconciliationStatus !== 'reconciled').length;
+
+  return (
+    <div>
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-xs">
+        <span className="font-medium text-[var(--color-text-secondary)]">Lançamentos vinculados ao cartão</span>
+        <span className="text-[var(--color-text-secondary)]">
+          {movements.length} lançamento(s) · {unreconciled} não conciliado(s)
+        </span>
+      </div>
+      {movements.length === 0 ? (
+        <p className="text-xs text-[var(--color-text-secondary)]">Nenhum lançamento vinculado a este cartão ainda.</p>
+      ) : (
+        <>
+          <ul className="divide-y divide-[var(--color-border)] text-xs">
+            {pg.pageItems.map((m) => {
+              const label =
+                m.reconciliationStatus === 'reconciled'
+                  ? 'Conciliado'
+                  : m.reconciliationStatus === 'divergent'
+                    ? 'Divergência'
+                    : 'Não conciliado';
+              const tone =
+                m.reconciliationStatus === 'reconciled' ? 'income' : m.reconciliationStatus === 'divergent' ? 'warning' : 'neutral';
+              return (
+                <li key={m.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
+                  <div className="min-w-0">
+                    <p className="truncate text-[var(--color-text)]">{m.description}</p>
+                    <p className="text-[var(--color-text-secondary)]">{formatCivilDateBR(m.effectiveDate)}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <StatusTag label={label} tone={tone} />
+                    <FinancialValue cents={m.signedCents} privacyMode={privacy} showSign className="font-medium" />
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+          <PaginationBar
+            page={pg.page}
+            totalPages={pg.totalPages}
+            totalItems={pg.totalItems}
+            pageSize={pg.pageSize}
+            setPage={pg.setPage}
+            label="lançamentos"
+          />
+        </>
+      )}
+    </div>
+  );
+};
 
 export const CardsView: React.FC<Props> = ({ workspace, onRefresh, onPayBill }) => {
   const [showCreateCard, setShowCreateCard] = useState(false);
@@ -243,6 +302,14 @@ export const CardsView: React.FC<Props> = ({ workspace, onRefresh, onPayBill }) 
                     </div>
                   </div>
                 </div>
+
+                <CardLedger
+                  cardId={card.id}
+                  privacy={privacy}
+                  movements={workspace.movements
+                    .filter((m) => m.accountId === card.accountId && !m.isDeleted)
+                    .sort((a, b) => b.effectiveDate.localeCompare(a.effectiveDate))}
+                />
 
                 {cardObs.length > 0 && (
                   <div>

@@ -210,22 +210,17 @@ export const TransactionsView: React.FC<Props> = ({
     const natureLabel = tg ? 'Transferência' : ev?.nature === 'income' || m.signedCents > 0 ? 'Receita' : 'Despesa';
     const natureTone = tg ? 'transfer' : ev?.nature === 'income' || m.signedCents > 0 ? 'income' : 'neutral';
 
-    const qualityLabel =
+    // Conciliação (conferência com o extrato) e revisão (categoria/conferência do lançamento) são coisas diferentes.
+    const reconcileLabel =
       m.reconciliationStatus === 'reconciled'
         ? 'Conciliado'
         : m.reconciliationStatus === 'divergent'
           ? 'Divergência'
-          : m.reviewStatus !== 'reviewed'
-            ? 'Pendente'
-            : 'Não conciliado';
-    const qualityTone =
-      m.reconciliationStatus === 'reconciled'
-        ? 'income'
-        : m.reconciliationStatus === 'divergent' || m.reviewStatus !== 'reviewed'
-          ? 'warning'
-          : 'neutral';
+          : 'Não conciliado';
+    const reconcileTone = m.reconciliationStatus === 'reconciled' ? 'income' : m.reconciliationStatus === 'divergent' ? 'warning' : 'neutral';
+    const reviewLabel = m.reviewStatus !== 'reviewed' ? 'Pendente de revisão' : null;
 
-    return { natureLabel, natureTone, qualityLabel, qualityTone } as const;
+    return { natureLabel, natureTone, reconcileLabel, reconcileTone, reviewLabel } as const;
   };
 
   return (
@@ -375,11 +370,12 @@ export const TransactionsView: React.FC<Props> = ({
                 </div>
                 <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-[var(--color-text-secondary)]">
                   <span>
-                    {formatCivilDateBR(m.effectiveDate)} · {acc?.name || 'Conta'} · {cat?.name || 'Sem categoria'}
+                    {formatCivilDateBR(m.effectiveDate)} · {acc?.type === 'credit_card' ? `Cartão · ${acc.name}` : acc?.name || 'Conta'} · {cat?.name || 'Sem categoria'}
                   </span>
                   <div className="flex items-center gap-1.5">
                     <StatusTag label={chips.natureLabel} tone={chips.natureTone} />
-                    <StatusTag label={chips.qualityLabel} tone={chips.qualityTone} />
+                    <StatusTag label={chips.reconcileLabel} tone={chips.reconcileTone} />
+                    {chips.reviewLabel && <StatusTag label={chips.reviewLabel} tone="warning" />}
                   </div>
                 </div>
               </button>
@@ -450,7 +446,15 @@ export const TransactionsView: React.FC<Props> = ({
                         {formatCivilDateBR(m.effectiveDate)}
                       </td>
                       <td className="px-4 py-3 font-medium text-[var(--color-text)]">{m.description}</td>
-                      <td className="px-4 py-3 text-xs text-[var(--color-text-secondary)]">{acc?.name || '—'}</td>
+                      <td className="px-4 py-3 text-xs text-[var(--color-text-secondary)]">
+                        {acc?.type === 'credit_card' ? (
+                          <span className="inline-flex items-center gap-1 rounded-md bg-[var(--color-primary-soft)] px-2 py-0.5 font-medium text-[var(--color-primary)]">
+                            Cartão · {acc.name}
+                          </span>
+                        ) : (
+                          acc?.name || '—'
+                        )}
+                      </td>
                       <td className="px-4 py-3 text-xs text-[var(--color-text-secondary)]">
                         {cat?.name || <span className="text-[var(--color-warning)]">Sem categoria</span>}
                       </td>
@@ -458,7 +462,8 @@ export const TransactionsView: React.FC<Props> = ({
                         <StatusTag label={chips.natureLabel} tone={chips.natureTone} />
                       </td>
                       <td className="px-4 py-3">
-                        <StatusTag label={chips.qualityLabel} tone={chips.qualityTone} />
+                        <StatusTag label={chips.reconcileLabel} tone={chips.reconcileTone} />
+                        {chips.reviewLabel && <StatusTag label={chips.reviewLabel} tone="warning" />}
                       </td>
                       <td className="px-4 py-3 text-xs font-mono-ref text-[var(--color-text-secondary)] uppercase">
                         {m.origin === 'system_transfer' ? 'SISTEMA' : m.origin}
