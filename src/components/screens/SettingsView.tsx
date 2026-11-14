@@ -10,7 +10,6 @@ interface Props {
   workspace: WorkspaceData;
   supabaseConfigured: boolean;
   supabaseStatus: SupabaseDiagnostics | null;
-  isDemo: boolean;
   onRefresh: () => Promise<void>;
   onRefreshSupabase: () => Promise<void>;
   onThemeChange: (theme: ThemeMode) => Promise<void>;
@@ -21,7 +20,6 @@ export const SettingsView: React.FC<Props> = ({
   workspace,
   supabaseConfigured,
   supabaseStatus,
-  isDemo,
   onRefresh,
   onRefreshSupabase,
   onThemeChange,
@@ -248,7 +246,7 @@ export const SettingsView: React.FC<Props> = ({
           <div>
             <h3 className="text-base font-semibold text-[var(--color-text)]">Exportação pessoal e diagnóstico</h3>
             <p className="text-xs text-[var(--color-text-secondary)]">
-              Ambiente: {isDemo ? 'Demonstrativo isolado' : supabaseConfigured ? 'Supabase PostgreSQL' : 'Servidor local de desenvolvimento'} · Fuso {workspace.profile.timezone}
+              Ambiente: Supabase PostgreSQL · Fuso {workspace.profile.timezone}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">

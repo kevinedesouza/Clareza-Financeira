@@ -20,6 +20,7 @@ export interface ProcessBatchInput {
   externalIdentities: ExternalIdentity[];
   rules: CategoryRule[];
   csvOptions?: {
+    positiveIsExpense?: boolean;
     delimiter?: ',' | ';' | '\t' | 'auto';
     dateFormat?: 'DD/MM/YYYY' | 'YYYY-MM-DD' | 'auto';
     decimalSeparator?: ',' | '.' | 'auto';

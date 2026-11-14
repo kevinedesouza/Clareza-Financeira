@@ -51,19 +51,9 @@ export interface SupabaseEnvConfig {
 }
 
 export function getSupabaseEnv(): SupabaseEnvConfig {
-  const url = (
-    process.env.SUPABASE_URL ||
-    process.env.VITE_SUPABASE_URL ||
-    process.env.NEXT_PUBLIC_SUPABASE_URL ||
-    ''
-  ).trim();
-  const anonKey = (
-    process.env.SUPABASE_ANON_KEY ||
-    process.env.VITE_SUPABASE_ANON_KEY ||
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-    process.env.SUPABASE_PUBLISHABLE_KEY ||
-    ''
-  ).trim();
+  // Variáveis do servidor: SUPABASE_URL e SUPABASE_PUBLISHABLE_KEY (VITE_* não é usado no servidor)
+  const url = (process.env.SUPABASE_URL || '').trim();
+  const anonKey = (process.env.SUPABASE_PUBLISHABLE_KEY || process.env.SUPABASE_ANON_KEY || '').trim();
   const serviceRoleKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
   const storageBucket = (process.env.SUPABASE_STORAGE_BUCKET || 'clareza-extratos').trim();
   const databaseUrl = (process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || '').trim();

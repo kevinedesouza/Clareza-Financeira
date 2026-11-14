@@ -42,7 +42,6 @@ export const AuthScreen: React.FC<Props> = ({
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [loading, setLoading] = useState(false);
-  const [demoLoading, setDemoLoading] = useState(false);
   const [checkingConn, setCheckingConn] = useState(false);
   const [sqlModalOpen, setSqlModalOpen] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -91,20 +90,6 @@ export const AuthScreen: React.FC<Props> = ({
       setErrorMsg(err instanceof Error ? err.message : 'Falha na autenticação.');
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleEnterDemo = async () => {
-    setErrorMsg(null);
-    setInfoMsg(null);
-    setDemoLoading(true);
-    try {
-      await apiRequest('/api/auth/demo', { method: 'POST', body: {} });
-      await onAuthenticated();
-    } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : 'Não foi possível iniciar o ambiente demonstrativo.');
-    } finally {
-      setDemoLoading(false);
     }
   };
 
@@ -211,15 +196,6 @@ export const AuthScreen: React.FC<Props> = ({
             </div>
           </div>
 
-          <div className="pt-2">
-            <Button variant="secondary" size="lg" onClick={handleEnterDemo} loading={demoLoading}>
-              Explorar Ambiente Demonstrativo
-              <ArrowRight className="h-4 w-4" aria-hidden="true" />
-            </Button>
-            <p className="mt-2 text-xs text-[var(--color-text-secondary)]">
-              O ambiente demonstrativo usa dados sintéticos isolados e não altera sua base real.
-            </p>
-          </div>
         </div>
 
         <div className="lg:col-span-6">

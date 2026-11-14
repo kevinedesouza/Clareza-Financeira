@@ -38,7 +38,6 @@ export type NavTab =
 interface Props {
   activeTab: NavTab;
   profile: UserProfile;
-  isDemo: boolean;
   lastUpdatedAt: string;
   onSelectTab: (tab: NavTab) => void;
   onNewTransaction: (nature?: 'expense' | 'income') => void;
@@ -90,7 +89,6 @@ const TAB_TITLES: Record<NavTab, string> = {
 export const AppShell: React.FC<Props> = ({
   activeTab,
   profile,
-  isDemo,
   lastUpdatedAt,
   onSelectTab,
   onNewTransaction,
@@ -174,24 +172,6 @@ export const AppShell: React.FC<Props> = ({
 
       {/* Área Principal */}
       <div className="flex-1 flex flex-col xl:pl-64 min-w-0">
-        {isDemo && (
-          <div
-            role="status"
-            className="flex flex-wrap items-center justify-between gap-2 bg-[var(--color-primary-soft)] border-b border-[var(--color-primary)]/20 px-4 py-2 text-xs text-[var(--color-primary)]"
-          >
-            <span>
-              <strong>Ambiente Demonstrativo</strong> · Dados sintéticos isolados da sua base real.
-            </span>
-            <button
-              type="button"
-              onClick={onLogout}
-              className="focus-ring font-semibold underline cursor-pointer"
-            >
-              Sair da demonstração
-            </button>
-          </div>
-        )}
-
         <OfflineBanner />
 
         {/* Header Top Bar */}

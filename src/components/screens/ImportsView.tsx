@@ -30,6 +30,7 @@ export const ImportsView: React.FC<Props> = ({
   const [fileSize, setFileSize] = useState(0);
   const [delimiter, setDelimiter] = useState<'auto' | ';' | ',' | '\t'>('auto');
   const [dateFormat, setDateFormat] = useState<'DD/MM/YYYY' | 'YYYY-MM-DD' | 'auto'>('DD/MM/YYYY');
+  const [positiveIsExpense, setPositiveIsExpense] = useState(false);
 
   const [activeBatch, setActiveBatch] = useState<ImportBatch | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
@@ -89,7 +90,7 @@ export const ImportsView: React.FC<Props> = ({
           fileName,
           format,
           contentBase64,
-          csvOptions: format === 'csv' ? { delimiter, dateFormat } : undefined,
+          csvOptions: format === 'csv' ? { delimiter, dateFormat, positiveIsExpense } : undefined,
         },
       });
       await onRefresh();
@@ -346,6 +347,20 @@ export const ImportsView: React.FC<Props> = ({
                       <option value="YYYY-MM-DD">AAAA-MM-DD</option>
                     </select>
                   </div>
+                  <label className="flex items-start gap-2 text-sm text-[var(--color-text)] sm:col-span-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={positiveIsExpense}
+                      onChange={(e) => setPositiveIsExpense(e.target.checked)}
+                      className="mt-1 h-4 w-4"
+                    />
+                    <span>
+                      Valores positivos são despesas (fatura de cartão).
+                      <span className="block text-xs text-[var(--color-text-secondary)]">
+                        Marque se a fatura lista compras como valores positivos. Pagamentos e estornos passam a ser receitas.
+                      </span>
+                    </span>
+                  </label>
                 </>
               )}
             </div>

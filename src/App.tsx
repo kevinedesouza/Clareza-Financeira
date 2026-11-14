@@ -35,7 +35,6 @@ export default function App() {
   const [authenticated, setAuthenticated] = useState(false);
   const [supabaseConfigured, setSupabaseConfigured] = useState(false);
   const [supabaseStatus, setSupabaseStatus] = useState<SupabaseDiagnostics | null>(null);
-  const [isDemo, setIsDemo] = useState(false);
 
   const [workspace, setWorkspace] = useState<WorkspaceData | null>(null);
   const [insights, setInsights] = useState<InsightItem[]>([]);
@@ -46,8 +45,8 @@ export default function App() {
   const [txFilterCat, setTxFilterCat] = useState<string>('');
   const [txFilterPending, setTxFilterPending] = useState<boolean>(false);
 
-  // Período padrão (Novembro 2026 no ambiente demo ou mês civil atual)
-  const [periodMonth, setPeriodMonth] = useState<string>('2026-11');
+  // Período padrão: mês civil atual (America/Sao_Paulo)
+  const [periodMonth, setPeriodMonth] = useState<string>(() => todayCivilSaoPaulo().slice(0, 7));
   const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
 
   // Modais globais
@@ -60,7 +59,7 @@ export default function App() {
   const periodStart = `${periodMonth}-01`;
   const [pYear, pMonth] = periodMonth.split('-').map(Number);
   const periodEnd = `${periodMonth}-${String(daysInMonth(pYear, pMonth)).padStart(2, '0')}`;
-  const todayDate = isDemo ? '2026-11-14' : todayCivilSaoPaulo();
+  const todayDate = todayCivilSaoPaulo();
 
   const loadWorkspace = useCallback(async () => {
     try {
@@ -68,13 +67,11 @@ export default function App() {
       const data = await apiRequest<{
         workspace: WorkspaceData;
         insights: InsightItem[];
-        isDemo: boolean;
         fetchedAt: string;
       }>(`/api/workspace?periodStart=${periodStart}&periodEnd=${periodEnd}`);
 
       setWorkspace(data.workspace);
       setInsights(data.insights);
-      setIsDemo(data.isDemo);
       setLastUpdatedAt(data.fetchedAt);
       applyThemeToDocument(data.workspace.profile.theme);
     } catch (err) {
@@ -89,9 +86,6 @@ export default function App() {
 
   const bootstrapSession = useCallback(async () => {
     try {
-      const params = new URLSearchParams(window.location.search);
-      const autostart = params.get('autostart') === '1';
-
       const sess = await apiRequest<{
         authenticated: boolean;
         supabaseConfigured: boolean;
@@ -101,11 +95,7 @@ export default function App() {
       setSupabaseConfigured(sess.supabaseConfigured);
       setSupabaseStatus(sess.supabase ?? null);
 
-      if (!sess.authenticated && autostart) {
-        await apiRequest('/api/auth/demo', { method: 'POST', body: {} });
-        setAuthenticated(true);
-        await loadWorkspace();
-      } else if (sess.authenticated) {
+      if (sess.authenticated) {
         setAuthenticated(true);
         await loadWorkspace();
       } else {
@@ -160,7 +150,6 @@ export default function App() {
     setAuthenticated(false);
     setWorkspace(null);
     setInsights([]);
-    setIsDemo(false);
     setActiveTab('dashboard');
   };
 
@@ -225,7 +214,6 @@ export default function App() {
     <AppShell
       activeTab={activeTab}
       profile={workspace.profile}
-      isDemo={isDemo}
       lastUpdatedAt={lastUpdatedAt}
       onSelectTab={(t) => {
         setTxFilterCat('');
@@ -386,7 +374,6 @@ export default function App() {
           workspace={workspace}
           supabaseConfigured={supabaseConfigured}
           supabaseStatus={supabaseStatus}
-          isDemo={isDemo}
           onRefresh={loadWorkspace}
           onRefreshSupabase={refreshSupabaseStatus}
           onThemeChange={handleThemeChange}

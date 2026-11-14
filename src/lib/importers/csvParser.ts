@@ -1,6 +1,8 @@
 import { parseMoneyToCents, sanitizeCsvCell } from '../domain/money';
 
 export interface CsvParseOptions {
+  /** Fatura de cartão: valores positivos são despesas (o sistema usa positivo = receita). */
+  positiveIsExpense?: boolean;
   delimiter?: ',' | ';' | '\t' | 'auto';
   dateFormat?: 'DD/MM/YYYY' | 'YYYY-MM-DD' | 'auto';
   decimalSeparator?: ',' | '.' | 'auto';
@@ -298,6 +300,7 @@ export function parseCsvStatement(input: string | Uint8Array, options: CsvParseO
       errors.push('Coluna de valor não mapeada');
     }
 
+    if (options.positiveIsExpense && cents !== undefined) cents = -cents;
     rows.push({
       rowIndex: r + 1,
       rawPayload,
