@@ -28,6 +28,7 @@ import { computeAccountBalance, generateRecurrenceDates } from './src/lib/domain
 import { computeDeterministicInsights } from './src/lib/domain/insights';
 import { daysInMonth, splitInstallments, todayCivilSaoPaulo } from './src/lib/domain/money';
 import { processImportPayload } from './workers/importWorker';
+import { analyzeReceipt, receiptAiAvailable, RECEIPT_MAX_BYTES } from './src/lib/ai/receiptAnalyzer';
 import {
   createSupabaseAdminClient,
   createSupabaseAnonClient,
@@ -625,6 +626,42 @@ async function startServer() {
         res.status(400).json({
           code: 'PARSE_ERROR',
           message: err instanceof Error ? err.message : 'Falha ao analisar arquivo.',
+        });
+      }
+    })
+  );
+
+  app.post(
+    '/api/receipts/analyze',
+    requireAuth,
+    asyncRoute(async (req: AuthedRequest, res) => {
+      const { contentBase64, mimeType, fileName } = req.body || {};
+      if (typeof contentBase64 !== 'string' || !contentBase64 || typeof mimeType !== 'string') {
+        res.status(400).json({ code: 'INVALID_FILE', message: 'Envie uma imagem ou PDF da nota fiscal.' });
+        return;
+      }
+      if (!receiptAiAvailable()) {
+        res.status(503).json({ code: 'AI_NOT_CONFIGURED', message: 'Leitura por IA não está configurada no servidor.' });
+        return;
+      }
+      const approxBytes = Math.floor((contentBase64.length * 3) / 4);
+      if (approxBytes > RECEIPT_MAX_BYTES) {
+        res.status(413).json({ code: 'FILE_TOO_LARGE', message: 'A nota deve ter até 5 MB.' });
+        return;
+      }
+      try {
+        const { data: catRows } = await req.sbUser!
+          .from('categories')
+          .select('id,name,kind')
+          .eq('owner_id', req.userId!)
+          .eq('is_archived', false);
+        const categories = (catRows || []).map((c: any) => ({ id: c.id, name: c.name, kind: c.kind }));
+        const analysis = await analyzeReceipt(contentBase64, mimeType, String(fileName || 'nota'), categories);
+        res.status(200).json({ analysis });
+      } catch (err) {
+        res.status(502).json({
+          code: 'AI_ANALYSIS_FAILED',
+          message: err instanceof Error ? err.message : 'Não foi possível analisar a nota.',
         });
       }
     })

@@ -183,6 +183,40 @@ export function computeCardCycle(
   return { cycleStart, cycleEnd, purchasesCents, creditsCents };
 }
 
+/**
+ * Próxima data de vencimento (dia `dueDay`) em ou após `todayDate`.
+ */
+export function nextCardDueDate(dueDay: number, todayDate: string): string {
+  const [y, m] = todayDate.split('-').map(Number);
+  const dueIn = (year: number, month: number) =>
+    `${year}-${String(month).padStart(2, '0')}-${String(Math.min(dueDay, daysInMonth(year, month))).padStart(2, '0')}`;
+  const thisMonth = dueIn(y, m);
+  if (thisMonth >= todayDate) return thisMonth;
+  const nm = m === 12 ? 1 : m + 1;
+  const ny = m === 12 ? y + 1 : y;
+  return dueIn(ny, nm);
+}
+
+/**
+ * Saídas previstas de caixa para pagar as faturas abertas (dívida positiva) dos cartões ativos.
+ */
+export function computeCardBillOutflows(
+  data: Pick<WorkspaceData, 'cards' | 'accounts' | 'movements' | 'obligations' | 'settlements'>,
+  todayDate: string
+): { cardId: string; dueDate: string; cents: number }[] {
+  const out: { cardId: string; dueDate: string; cents: number }[] = [];
+  for (const card of data.cards) {
+    if (card.isArchived) continue;
+    const acc = data.accounts.find((a) => a.id === card.accountId);
+    if (!acc) continue;
+    const { debtCents } = computeCardDebtSummary(card, acc, data.movements, data.obligations, data.settlements);
+    if (debtCents > 0) {
+      out.push({ cardId: card.id, dueDate: nextCardDueDate(card.dueDay, todayDate), cents: debtCents });
+    }
+  }
+  return out;
+}
+
 export function computeObligationOpenCents(obligation: Obligation, settlements: Settlement[]): number {
   if (obligation.status === 'canceled') return 0;
   const paid = settlements
@@ -436,21 +470,26 @@ export function computeDashboardMetrics(
   const commitmentRatePct =
     receivablePeriodCents > 0 ? Math.round((payablePeriodCents / receivablePeriodCents) * 1000) / 10 : null;
 
+  // Saída de caixa prevista para pagamento das faturas abertas de cartão, na próxima data de vencimento.
+  // A dívida do cartão já inclui compras à vista e parcelas (lançadas integralmente no cartão), então
+  // as parcelas futuras de cartão NÃO são projetadas separadamente, para não contar duas vezes.
+  const cardBillOutflows = computeCardBillOutflows(data, todayDate);
+
+  const isCardInstallmentObligation = (ob: Obligation) =>
+    Boolean(ob.cardId) && !ob.description.toLowerCase().includes('fatura');
+
   const projectAtDays = (days: number) => {
     const horizon = addDaysCivil(todayDate, days);
     let netFuture = 0;
     for (const ob of data.obligations) {
       if (ob.status === 'canceled' || ob.status === 'settled') continue;
       if (ob.dueDate > horizon) continue;
-      // Para faturas/parcelas de cartão, só projeta obrigações de fatura consolidada ou contas a pagar de caixa;
-      // aqui modelamos obrigações como compromissos de caixa sem duplicar compras no cartão
-      if (ob.cardId && !ob.description.toLowerCase().includes('fatura')) {
-        // Parcelas futuras compõem a fatura futura na data de vencimento do cartão
-        netFuture -= computeObligationOpenCents(ob, data.settlements);
-        continue;
-      }
+      if (isCardInstallmentObligation(ob)) continue;
       const open = computeObligationOpenCents(ob, data.settlements);
       netFuture += ob.direction === 'receivable' ? open : -open;
+    }
+    for (const bill of cardBillOutflows) {
+      if (bill.dueDate <= horizon) netFuture -= bill.cents;
     }
     return liquidityBalanceCents + netFuture;
   };
@@ -516,12 +555,20 @@ export function computeDashboardMetrics(
       const dt = addDaysCivil(todayDate, d);
       const prevDt = addDaysCivil(todayDate, d - 5);
       const dueObs = data.obligations.filter(
-        (o) => o.status !== 'canceled' && o.status !== 'settled' && o.dueDate > prevDt && o.dueDate <= dt
+        (o) =>
+          o.status !== 'canceled' &&
+          o.status !== 'settled' &&
+          !isCardInstallmentObligation(o) &&
+          o.dueDate > prevDt &&
+          o.dueDate <= dt
       );
       let delta = 0;
       for (const o of dueObs) {
         const open = computeObligationOpenCents(o, data.settlements);
         delta += o.direction === 'receivable' ? open : -open;
+      }
+      for (const bill of cardBillOutflows) {
+        if (bill.dueDate > prevDt && bill.dueDate <= dt) delta -= bill.cents;
       }
       projBalance += delta;
       evolutionSeries.push({

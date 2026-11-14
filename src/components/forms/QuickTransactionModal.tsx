@@ -3,7 +3,33 @@ import { Account, Category, Project } from '../../lib/domain/types';
 import { parseMoneyToCents, todayCivilSaoPaulo } from '../../lib/domain/money';
 import { apiRequest, createOperationKey } from '../../lib/api/client';
 import { Button } from '../ui/Primitives';
-import { ChevronDown, ChevronUp, X } from 'lucide-react';
+import { ChevronDown, ChevronUp, FileText, Sparkles, X } from 'lucide-react';
+
+const RECEIPT_ACCEPT = 'image/jpeg,image/png,image/webp,application/pdf';
+const RECEIPT_MAX_BYTES = 5 * 1024 * 1024;
+
+interface ReceiptAnalysisResponse {
+  analysis: {
+    amountCents: number | null;
+    date: string | null;
+    description: string | null;
+    categoryId: string | null;
+    confidence: number;
+    warnings: string[];
+  };
+}
+
+function readFileAsBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result || '');
+      resolve(result.slice(result.indexOf(',') + 1));
+    };
+    reader.onerror = () => reject(new Error('Não foi possível ler o arquivo.'));
+    reader.readAsDataURL(file);
+  });
+}
 
 interface Props {
   isOpen: boolean;
@@ -42,7 +68,46 @@ export const QuickTransactionModal: React.FC<Props> = ({
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [opKey, setOpKey] = useState(createOperationKey());
 
+  const [receiptName, setReceiptName] = useState<string | null>(null);
+  const [receiptAnalyzing, setReceiptAnalyzing] = useState(false);
+  const [receiptWarnings, setReceiptWarnings] = useState<string[]>([]);
+  const [receiptError, setReceiptError] = useState<string | null>(null);
+
   if (!isOpen) return null;
+
+  const handleReceiptFile = async (file: File | undefined) => {
+    if (!file) return;
+    setReceiptError(null);
+    setReceiptWarnings([]);
+    if (file.size > RECEIPT_MAX_BYTES) {
+      setReceiptError('A nota deve ter até 5 MB.');
+      return;
+    }
+    if (!RECEIPT_ACCEPT.split(',').includes(file.type)) {
+      setReceiptError('Formato não suportado. Envie JPG, PNG, WEBP ou PDF.');
+      return;
+    }
+    setReceiptName(file.name);
+    setReceiptAnalyzing(true);
+    try {
+      const contentBase64 = await readFileAsBase64(file);
+      const res = await apiRequest<ReceiptAnalysisResponse>('/api/receipts/analyze', {
+        method: 'POST',
+        body: { contentBase64, mimeType: file.type, fileName: file.name },
+      });
+      const a = res.analysis;
+      if (a.amountCents !== null) setAmountStr((a.amountCents / 100).toFixed(2).replace('.', ','));
+      if (a.date) setEffectiveDate(a.date);
+      if (a.description) setDescription(a.description);
+      if (a.categoryId) setCategoryId(a.categoryId);
+      setNature('expense');
+      setReceiptWarnings(a.warnings);
+    } catch (err) {
+      setReceiptError(err instanceof Error ? err.message : 'Não foi possível analisar a nota.');
+    } finally {
+      setReceiptAnalyzing(false);
+    }
+  };
 
   const filteredCategories = categories.filter(
     (c) => !c.isArchived && (nature === 'income' ? c.kind === 'income' : c.kind === 'expense')
@@ -158,6 +223,54 @@ export const QuickTransactionModal: React.FC<Props> = ({
                 </button>
               ))}
             </div>
+          </div>
+
+          {/* 1b. Nota fiscal (opcional): a IA lê e preenche os campos abaixo */}
+          <div className="rounded-lg border border-dashed border-[var(--color-control-border)] bg-[var(--color-surface-muted)] p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <p className="text-sm font-medium text-[var(--color-text)]">Nota fiscal (opcional)</p>
+                <p className="text-xs text-[var(--color-text-secondary)]">
+                  Envie uma foto ou PDF e a IA preenche valor, data, descrição e categoria. Revise antes de salvar.
+                </p>
+              </div>
+              <label
+                className={`focus-ring inline-flex min-h-[40px] cursor-pointer items-center gap-1.5 rounded-lg border border-[var(--color-control-border)] bg-[var(--color-surface)] px-3 text-sm font-medium text-[var(--color-text)] ${
+                  receiptAnalyzing ? 'opacity-60 pointer-events-none' : ''
+                }`}
+              >
+                <Sparkles className="h-4 w-4" aria-hidden="true" />
+                {receiptAnalyzing ? 'Analisando…' : 'Enviar nota'}
+                <input
+                  type="file"
+                  accept={RECEIPT_ACCEPT}
+                  className="sr-only"
+                  disabled={receiptAnalyzing}
+                  onChange={(e) => {
+                    handleReceiptFile(e.target.files?.[0]);
+                    e.target.value = '';
+                  }}
+                />
+              </label>
+            </div>
+            {receiptName && !receiptAnalyzing && (
+              <p className="mt-2 inline-flex items-center gap-1 text-xs text-[var(--color-text-secondary)]">
+                <FileText className="h-3.5 w-3.5" aria-hidden="true" />
+                {receiptName}
+              </p>
+            )}
+            {receiptError && (
+              <p role="alert" className="mt-2 text-xs text-[var(--color-expense)]">
+                {receiptError}
+              </p>
+            )}
+            {receiptWarnings.length > 0 && (
+              <ul className="mt-2 list-disc space-y-0.5 pl-4 text-xs text-[var(--color-text-secondary)]">
+                {receiptWarnings.map((w) => (
+                  <li key={w}>{w}</li>
+                ))}
+              </ul>
+            )}
           </div>
 
           {/* 2. Valor */}

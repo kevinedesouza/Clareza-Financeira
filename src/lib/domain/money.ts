@@ -170,3 +170,13 @@ export function sanitizeCsvCell(value: string): string {
   }
   return safe;
 }
+
+/**
+ * Valida uma data civil YYYY-MM-DD que existe de fato (ex.: rejeita 2026-02-30).
+ */
+export function isCivilDateIso(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [y, m, d] = value.split('-').map(Number);
+  if (m < 1 || m > 12 || d < 1) return false;
+  return d <= daysInMonth(y, m);
+}

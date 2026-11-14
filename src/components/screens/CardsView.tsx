@@ -279,7 +279,7 @@ export const CardsView: React.FC<Props> = ({ workspace, onRefresh, onPayBill }) 
 
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 border-y border-[var(--color-border)] py-4">
                   <div>
-                    <span className="text-xs text-[var(--color-text-secondary)]">Dívida / Fatura atual</span>
+                    <span className="text-xs text-[var(--color-text-secondary)]">Dívida total em aberto</span>
                     <div className="mt-1 text-lg font-bold text-[var(--color-text)]">
                       <FinancialValue cents={summary.debtCents} privacyMode={privacy} />
                     </div>

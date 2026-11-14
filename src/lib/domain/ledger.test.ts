@@ -15,6 +15,7 @@ import {
   computeObligationOpenCents,
   generateRecurrenceDates,
   createEmptyWorkspace,
+  nextCardDueDate,
 } from './ledger';
 import { computeDeterministicInsights } from './insights';
 
@@ -237,4 +238,40 @@ test('ciclo do cartão: compras entre o fechamento anterior e o próximo fechame
   assert.equal(after.cycleStart, '2026-11-27');
   assert.equal(after.cycleEnd, '2026-12-26');
   assert.equal(after.purchasesCents, 9999);
+});
+
+test('projeção 30d desconta a fatura aberta do cartão na data de vencimento, sem contar parcelas duas vezes', () => {
+  const ws = buildReferenceScenarioWorkspace(false);
+  ws.obligations = [];
+  ws.settlements = [];
+  // Cenário de referência: compra de R$ 300 no cartão (já em movimentos) + parcela de R$ 100 cadastrada como obrigação do cartão
+  ws.obligations.push({
+    id: 'ob-parc',
+    ownerId: 'ref-owner',
+    direction: 'payable',
+    description: 'Parcela 2/3 — Eletrônicos',
+    originalCents: 10000,
+    canceledCents: 0,
+    dueDate: '2026-12-18',
+    status: 'expected',
+    cardId: 'card-1',
+    version: 1,
+  } as any);
+  const withoutCard = computeDashboardMetrics(ws, {
+    periodStart: '2026-11-01',
+    periodEnd: '2026-11-30',
+    todayDate: '2026-11-14',
+  });
+  // Fatura de R$ 300 vence dia 18 (dentro de 30 dias); a parcela de R$ 100 NÃO é subtraída de novo
+  assert.equal(withoutCard.cardDebtCents, 30000);
+  const liqBase = withoutCard.liquidityBalanceCents;
+  assert.equal(withoutCard.projected30dCents, liqBase - 30000);
+  assert.equal(withoutCard.projected60dCents, liqBase - 30000);
+});
+
+test('nextCardDueDate: vencimento já passado no mês cai no mês seguinte; dia 31 vira último dia', () => {
+  assert.equal(nextCardDueDate(18, '2026-11-14'), '2026-11-18');
+  assert.equal(nextCardDueDate(10, '2026-11-14'), '2026-12-10');
+  assert.equal(nextCardDueDate(31, '2026-02-10'), '2026-02-28');
+  assert.equal(nextCardDueDate(18, '2026-12-20'), '2027-01-18');
 });

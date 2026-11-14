@@ -1547,7 +1547,12 @@ export async function sbPrepareImport(
   body: Record<string, any>
 ): Promise<{ status: number; payload: Record<string, unknown> }> {
   const { accountId, fileName, format, contentBase64, csvOptions } = body;
-  const { data: acc } = await sbUser.from('accounts').select('id').eq('id', accountId).eq('owner_id', ownerId).maybeSingle();
+  const { data: acc } = await sbUser
+    .from('accounts')
+    .select('id, opening_date')
+    .eq('id', accountId)
+    .eq('owner_id', ownerId)
+    .maybeSingle();
   if (!acc) {
     return { status: 400, payload: { code: 'INVALID_ACCOUNT', message: 'Selecione uma conta válida para a importação.' } };
   }
@@ -1641,6 +1646,22 @@ export async function sbPrepareImport(
     if (r.suggestedCategoryId) r.suggestionSource = 'rule';
   }
   const extraWarnings: string[] = [];
+  const openingDate = String(acc.opening_date || '');
+  const beforeOpening = b.rows.filter(
+    (r) =>
+      (r.decision === 'import_new' || r.decision === 'pending') &&
+      r.normalizedDate &&
+      openingDate &&
+      r.normalizedDate < openingDate
+  );
+  if (beforeOpening.length > 0) {
+    const earliest = beforeOpening.map((r) => r.normalizedDate as string).sort()[0];
+    extraWarnings.push(
+      `${beforeOpening.length} lançamento(s) são anteriores à data de referência desta conta (${openingDate.split('-').reverse().join('/')}) ` +
+        `e NÃO entram no saldo da conta. Mais antigo: ${earliest.split('-').reverse().join('/')}. ` +
+        `Para que entrem no saldo, ajuste a data de referência para antes desse lançamento e informe o saldo daquela data em Contas > Editar.`
+    );
+  }
   const ai = await applyAiCategorySuggestions(sbUser, ownerId, b.rows);
   if (ai.error) {
     extraWarnings.push(`Sugestões por IA indisponíveis nesta importação (${ai.error}). Categorize manualmente se preciso.`);
