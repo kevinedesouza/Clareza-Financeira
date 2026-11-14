@@ -91,8 +91,8 @@ export const SettingsView: React.FC<Props> = ({
     }
   };
 
-  const rulePg = usePagination(workspace.categoryRules);
-  const auditPg = usePagination(workspace.auditLogs);
+  const rulePg = usePagination(workspace.categoryRules, undefined, 'regras');
+  const auditPg = usePagination(workspace.auditLogs, undefined, 'auditoria');
   return (
     <div className="space-y-6">
       {statusMsg && (

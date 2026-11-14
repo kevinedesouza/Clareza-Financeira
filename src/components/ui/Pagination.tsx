@@ -1,18 +1,28 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 
 export const DEFAULT_PAGE_SIZE = 15;
 
-/** Fatia uma lista em páginas. Página volta para 1 quando o tamanho da lista muda (ex.: filtro). */
-export function usePagination<T>(items: readonly T[], pageSize: number = DEFAULT_PAGE_SIZE) {
-  const [page, setPage] = useState(1);
+const STORAGE_PREFIX = 'clareza-pg:';
+
+function readStoredPage(key?: string): number {
+  if (!key) return 1;
+  try {
+    const v = Number(sessionStorage.getItem(STORAGE_PREFIX + key));
+    return Number.isInteger(v) && v >= 1 ? v : 1;
+  } catch {
+    return 1;
+  }
+}
+
+/**
+ * Fatia uma lista em páginas. Com storageKey, a página atual é lembrada na sessão
+ * (sobrevive a recarregamentos da página). A página é ajustada ao limite de páginas disponível.
+ */
+export function usePagination<T>(items: readonly T[], pageSize: number = DEFAULT_PAGE_SIZE, storageKey?: string) {
+  const [page, setPageState] = useState<number>(() => readStoredPage(storageKey));
   const totalItems = items.length;
   const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
-
-  useEffect(() => {
-    setPage(1);
-  }, [totalItems]);
-
   const currentPage = Math.min(page, totalPages);
 
   const pageItems = useMemo(
@@ -20,13 +30,25 @@ export function usePagination<T>(items: readonly T[], pageSize: number = DEFAULT
     [items, currentPage, pageSize]
   );
 
+  const setPage = (p: number) => {
+    const next = Math.min(Math.max(1, p), totalPages);
+    setPageState(next);
+    if (storageKey) {
+      try {
+        sessionStorage.setItem(STORAGE_PREFIX + storageKey, String(next));
+      } catch {
+        /* armazenamento indisponível: a página volta ao início ao recarregar */
+      }
+    }
+  };
+
   return {
     pageItems,
     page: currentPage,
     totalPages,
     totalItems,
     pageSize,
-    setPage: (p: number) => setPage(Math.min(Math.max(1, p), totalPages)),
+    setPage,
   };
 }
 

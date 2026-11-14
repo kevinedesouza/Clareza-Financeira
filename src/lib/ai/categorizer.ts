@@ -38,7 +38,8 @@ const MAX_EXAMPLES = 80;
 
 export function aiConfig(): { apiKey: string; model: string } | null {
   const apiKey = (process.env.OPENAI_API_KEY || '').trim();
-  const model = (process.env.OPENAI_MODEL || '').trim();
+  // Normaliza o ID do modelo: IDs da OpenAI são minúsculos e com hífen (ex.: gpt-5.6-luna).
+  const model = (process.env.OPENAI_MODEL || '').trim().toLowerCase().replace(/\s+/g, '-');
   if (!apiKey || !model) return null;
   return { apiKey, model };
 }

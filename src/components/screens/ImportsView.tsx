@@ -38,9 +38,9 @@ export const ImportsView: React.FC<Props> = ({
   const [commitResult, setCommitResult] = useState<{ importedCount: number; linkedCount: number; ignoredCount: number } | null>(null);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const historyPg = usePagination(workspace.importBatches);
+  const historyPg = usePagination(workspace.importBatches, undefined, 'imp-lotes');
   const [pendingDelete, setPendingDelete] = useState<{ id: string; fileName: string } | null>(null);
-  const rowsPg = usePagination(activeBatch?.rows ?? []);
+  const rowsPg = usePagination(activeBatch?.rows ?? [], undefined, `imp-linhas-${activeBatch?.id ?? ''}`);
 
   const privacy = workspace.profile.privacyMode;
   const accountMap = new Map(workspace.accounts.map((a) => [a.id, a]));

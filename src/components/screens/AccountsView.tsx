@@ -172,7 +172,7 @@ export const AccountsView: React.FC<Props> = ({ workspace, onRefresh, onOpenTran
     }
   };
 
-  const accPg = usePagination(accounts);
+  const accPg = usePagination(accounts, undefined, 'contas');
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">

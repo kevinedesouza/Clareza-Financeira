@@ -52,8 +52,8 @@ export const ReportsView: React.FC<Props> = ({ workspace, periodStart, periodEnd
     return { project: p, inc, exp, net: inc - exp };
   });
 
-  const projPg = usePagination(projectTotals);
-  const accRepPg = usePagination(workspace.accounts);
+  const projPg = usePagination(projectTotals, undefined, 'relatorio-projetos');
+  const accRepPg = usePagination(workspace.accounts, undefined, 'relatorio-contas');
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">

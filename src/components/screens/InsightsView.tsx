@@ -17,7 +17,7 @@ export const InsightsView: React.FC<Props> = ({ insights, onRefresh, onNavigateT
     await onRefresh();
   };
 
-  const insPg = usePagination(insights);
+  const insPg = usePagination(insights, undefined, 'insights');
   return (
     <div className="space-y-6">
       <div>

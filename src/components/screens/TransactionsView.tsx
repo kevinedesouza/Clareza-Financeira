@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AccountMovement, WorkspaceData } from '../../lib/domain/types';
 import { formatCivilDateBR } from '../../lib/domain/money';
 import { buildSafeCsvExport } from '../../lib/importers/csvParser';
@@ -64,15 +64,21 @@ export const TransactionsView: React.FC<Props> = ({
       })
       .sort((a, b) => b.effectiveDate.localeCompare(a.effectiveDate));
   }, [workspace.movements, accountFilter, pendingOnly, categoryFilter, search, eventMap, accountMap, categoryMap]);
-  const pg = usePagination(filtered);
+  const pg = usePagination(filtered, undefined, 'lancamentos');
 
   // Seleção múltipla para exclusão em lote (persiste entre páginas; é limpa ao mudar filtros)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [bulkConfirmOpen, setBulkConfirmOpen] = useState(false);
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkMsg, setBulkMsg] = useState<string | null>(null);
+  const filterMounted = useRef(false);
   useEffect(() => {
+    if (!filterMounted.current) {
+      filterMounted.current = true;
+      return;
+    }
     setSelectedIds(new Set());
+    pg.setPage(1);
   }, [search, accountFilter, categoryFilter, pendingOnly]);
 
   const pageIds = pg.pageItems.map((m) => m.id);

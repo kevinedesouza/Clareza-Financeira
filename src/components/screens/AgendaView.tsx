@@ -135,7 +135,7 @@ export const AgendaView: React.FC<Props> = ({ workspace, todayDate, onRefresh })
     }
   };
 
-  const obPg = usePagination(obligations);
+  const obPg = usePagination(obligations, undefined, 'agenda');
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">

@@ -110,8 +110,8 @@ export const PlanningView: React.FC<Props> = ({ workspace, monthKey, todayDate, 
     }
   };
 
-  const goalPg = usePagination(workspace.goals);
-  const budgetPg = usePagination(monthBudgets);
+  const goalPg = usePagination(workspace.goals, undefined, 'metas');
+  const budgetPg = usePagination(monthBudgets, undefined, 'orcamentos');
   return (
     <div className="space-y-8">
       {msg && (

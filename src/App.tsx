@@ -41,7 +41,21 @@ export default function App() {
   const [lastUpdatedAt, setLastUpdatedAt] = useState<string>(new Date().toISOString());
   const [globalError, setGlobalError] = useState<string | null>(null);
 
-  const [activeTab, setActiveTab] = useState<NavTab>('dashboard');
+  const [activeTab, setActiveTab] = useState<NavTab>(() => {
+    try {
+      const saved = sessionStorage.getItem('clareza-tab') as NavTab | null;
+      return saved || 'dashboard';
+    } catch {
+      return 'dashboard';
+    }
+  });
+  useEffect(() => {
+    try {
+      sessionStorage.setItem('clareza-tab', activeTab);
+    } catch {
+      /* sem armazenamento: volta ao início ao recarregar */
+    }
+  }, [activeTab]);
   const [txFilterCat, setTxFilterCat] = useState<string>('');
   const [txFilterPending, setTxFilterPending] = useState<boolean>(false);
 

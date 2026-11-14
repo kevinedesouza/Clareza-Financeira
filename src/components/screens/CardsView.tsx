@@ -158,7 +158,7 @@ export const CardsView: React.FC<Props> = ({ workspace, onRefresh, onPayBill }) 
     }
   };
 
-  const cardPg = usePagination(cards);
+  const cardPg = usePagination(cards, undefined, 'cartoes');
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
