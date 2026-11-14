@@ -1,9 +1,28 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { SupabaseDiagnostics } from '../../lib/domain/types';
 import { apiRequest } from '../../lib/api/client';
 import { Button, PWAInstallButton } from '../ui/Primitives';
 import { SupabaseSqlModal } from '../modals/SupabaseSqlModal';
-import { ShieldCheck, ArrowRight, Database, RefreshCw, Table2, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { ShieldCheck, ArrowRight, Database, RefreshCw, Table2, CheckCircle2, AlertTriangle, Sun, Moon } from 'lucide-react';
+
+// Tema da tela de acesso: claro por padrão, com escolha do usuário lembrada neste navegador.
+// (Após o login, vale o tema salvo no perfil.)
+const AUTH_THEME_KEY = 'clareza-auth-theme';
+type AuthTheme = 'light' | 'dark';
+
+function readAuthTheme(): AuthTheme {
+  try {
+    return localStorage.getItem(AUTH_THEME_KEY) === 'dark' ? 'dark' : 'light';
+  } catch {
+    return 'light';
+  }
+}
+
+function applyAuthTheme(theme: AuthTheme) {
+  const root = document.documentElement;
+  root.classList.toggle('dark', theme === 'dark');
+  root.setAttribute('data-theme', theme);
+}
 
 interface Props {
   supabaseConfigured: boolean;
@@ -28,6 +47,16 @@ export const AuthScreen: React.FC<Props> = ({
   const [sqlModalOpen, setSqlModalOpen] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [infoMsg, setInfoMsg] = useState<string | null>(null);
+  const [authTheme, setAuthTheme] = useState<AuthTheme>(readAuthTheme);
+
+  useEffect(() => {
+    applyAuthTheme(authTheme);
+    try {
+      localStorage.setItem(AUTH_THEME_KEY, authTheme);
+    } catch {
+      /* armazenamento indisponível: o tema vale só nesta sessão */
+    }
+  }, [authTheme]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -101,7 +130,18 @@ export const AuthScreen: React.FC<Props> = ({
             Clareza Financeira
           </span>
         </div>
-        <PWAInstallButton compact />
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setAuthTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
+            aria-label={authTheme === 'dark' ? 'Usar tema claro' : 'Usar tema escuro'}
+            title={authTheme === 'dark' ? 'Usar tema claro' : 'Usar tema escuro'}
+            className="focus-ring inline-flex h-10 w-10 items-center justify-center rounded-lg border border-[var(--color-control-border)] bg-[var(--color-surface)] text-[var(--color-text)] cursor-pointer"
+          >
+            {authTheme === 'dark' ? <Sun className="h-4 w-4" aria-hidden="true" /> : <Moon className="h-4 w-4" aria-hidden="true" />}
+          </button>
+          <PWAInstallButton compact />
+        </div>
       </header>
 
       <main className="mx-auto my-8 grid w-full max-w-5xl grid-cols-1 gap-8 lg:grid-cols-12 lg:items-center">

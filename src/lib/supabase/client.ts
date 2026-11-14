@@ -6,7 +6,10 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
  */
 export function getSupabaseBrowserConfig() {
   const url = import.meta.env?.VITE_SUPABASE_URL as string | undefined;
-  const anonKey = import.meta.env?.VITE_SUPABASE_ANON_KEY as string | undefined;
+  // Chave pública: aceita a "publishable key" (novo formato) ou a "anon key" (legado).
+  const anonKey =
+    (import.meta.env?.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined) ||
+    (import.meta.env?.VITE_SUPABASE_ANON_KEY as string | undefined);
   const isConfigured = Boolean(
     url &&
       anonKey &&

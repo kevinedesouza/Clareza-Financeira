@@ -388,7 +388,7 @@ async function startServer() {
       const diagnostics = await getSupabaseDiagnostics();
       const missingConfig: string[] = [];
       if (!diagnostics.keys.url) missingConfig.push('SUPABASE_URL');
-      if (!diagnostics.keys.anonKey) missingConfig.push('VITE_SUPABASE_ANON_KEY');
+      if (!diagnostics.keys.anonKey) missingConfig.push('SUPABASE_PUBLISHABLE_KEY (ou VITE_SUPABASE_PUBLISHABLE_KEY)');
       if (!diagnostics.keys.serviceRoleKey) missingConfig.push('SUPABASE_SERVICE_ROLE_KEY');
 
       res.json({
