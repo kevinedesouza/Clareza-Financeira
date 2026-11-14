@@ -1,0 +1,12 @@
+node_modules
+dist
+dev-dist
+.git
+.gitignore
+.env
+.env.*
+Dockerfile
+.dockerignore
+package-lock.json
+*.log
+docs
