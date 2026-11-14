@@ -10,6 +10,7 @@ import {
   buildReferenceScenarioWorkspace,
   computeDashboardMetrics,
   computeAccountBalance,
+  computeCardCycle,
   computeCardDebtSummary,
   computeObligationOpenCents,
   generateRecurrenceDates,
@@ -213,4 +214,27 @@ test('Insights determinísticos: exemplo de aumento de Mercado R$ 180 (+24%)', (
   const growth = insights.find((i) => i.ruleKey === 'category_growth');
   assert.ok(growth);
   assert.ok(growth.title.includes('Mercado aumentou R$ 180,00 (+24%)'));
+});
+
+test('ciclo do cartão: compras entre o fechamento anterior e o próximo fechamento', () => {
+  const card = { accountId: 'acc-cartao', closingDay: 26 };
+  const mk = (id: string, date: string, signed: number) =>
+    ({ id, accountId: 'acc-cartao', effectiveDate: date, signedCents: signed, isDeleted: false } as any);
+  const movs = [
+    mk('a', '2026-10-25', -1000), // antes do ciclo (fecha 26/10)
+    mk('b', '2026-10-27', -2000), // início do ciclo
+    mk('c', '2026-11-10', -3000),
+    mk('d', '2026-11-12', 500), // pagamento no ciclo
+    mk('e', '2026-11-27', -9999), // após o fechamento de 26/11
+  ];
+  const cyc = computeCardCycle(card, movs, '2026-11-14');
+  assert.equal(cyc.cycleStart, '2026-10-27');
+  assert.equal(cyc.cycleEnd, '2026-11-26');
+  assert.equal(cyc.purchasesCents, 5000);
+  assert.equal(cyc.creditsCents, 500);
+
+  const after = computeCardCycle(card, movs, '2026-11-27');
+  assert.equal(after.cycleStart, '2026-11-27');
+  assert.equal(after.cycleEnd, '2026-12-26');
+  assert.equal(after.purchasesCents, 9999);
 });

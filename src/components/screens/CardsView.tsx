@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { AccountMovement, WorkspaceData } from '../../lib/domain/types';
-import { computeCardDebtSummary } from '../../lib/domain/ledger';
+import { computeCardCycle, computeCardDebtSummary } from '../../lib/domain/ledger';
 import { formatCivilDateBR, parseMoneyToCents, splitInstallments, todayCivilSaoPaulo } from '../../lib/domain/money';
 import { apiRequest, createOperationKey } from '../../lib/api/client';
 import { Button, FinancialValue, StatusTag } from '../ui/Primitives';
@@ -19,7 +19,7 @@ const CardLedger: React.FC<{ cardId: string; movements: AccountMovement[]; priva
   movements,
   privacy,
 }) => {
-  const pg = usePagination(movements, 10, `cartao-lanc-${cardId}`);
+  const pg = usePagination(movements, 4, `cartao-lanc-${cardId}`);
   const unreconciled = movements.filter((m) => m.reconciliationStatus !== 'reconciled').length;
 
   return (
@@ -283,6 +283,17 @@ export const CardsView: React.FC<Props> = ({ workspace, onRefresh, onPayBill }) 
                     <div className="mt-1 text-lg font-bold text-[var(--color-text)]">
                       <FinancialValue cents={summary.debtCents} privacyMode={privacy} />
                     </div>
+                    {(() => {
+                      const cyc = computeCardCycle(card, workspace.movements, todayCivilSaoPaulo());
+                      return (
+                        <p className="mt-1 text-[11px] text-[var(--color-text-secondary)]">
+                          Compras no ciclo ({formatCivilDateBR(cyc.cycleStart)} a {formatCivilDateBR(cyc.cycleEnd)}):{' '}
+                          <strong className="text-[var(--color-text)]">
+                            <FinancialValue cents={cyc.purchasesCents} privacyMode={privacy} />
+                          </strong>
+                        </p>
+                      );
+                    })()}
                     {summary.creditInFavorCents > 0 && (
                       <p className="text-[11px] text-[var(--color-income)]">
                         Crédito a favor: <FinancialValue cents={summary.creditInFavorCents} privacyMode={privacy} />

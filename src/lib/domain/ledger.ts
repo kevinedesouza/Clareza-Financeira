@@ -11,7 +11,7 @@ import {
   Settlement,
   WorkspaceData,
 } from './types';
-import { addDaysCivil, addMonthsCivil, splitInstallments } from './money';
+import { addDaysCivil, addMonthsCivil, daysInMonth, splitInstallments } from './money';
 
 export interface AccountBalanceSummary {
   account: Account;
@@ -144,6 +144,43 @@ export function computeCardDebtSummary(
     futureInstallmentsCents,
     availableEstimatedCents: Math.max(0, card.creditLimitCents - debtCents),
   };
+}
+
+/**
+ * Ciclo de faturamento do cartão em que `todayDate` está.
+ * O ciclo vai do dia seguinte ao fechamento anterior até o fechamento (inclusive) de `todayDate`.
+ * Compras = saídas do cartão no ciclo; pagamentos/estornos = entradas no ciclo.
+ */
+export function computeCardCycle(
+  card: Pick<Card, 'closingDay' | 'accountId'>,
+  movements: AccountMovement[],
+  todayDate: string
+): { cycleStart: string; cycleEnd: string; purchasesCents: number; creditsCents: number } {
+  const [y, m] = todayDate.split('-').map(Number);
+  const closingIn = (year: number, month: number) =>
+    `${year}-${String(month).padStart(2, '0')}-${String(Math.min(card.closingDay, daysInMonth(year, month))).padStart(2, '0')}`;
+
+  let cycleEnd = closingIn(y, m);
+  if (todayDate > cycleEnd) {
+    const nm = m === 12 ? 1 : m + 1;
+    const ny = m === 12 ? y + 1 : y;
+    cycleEnd = closingIn(ny, nm);
+  }
+  const endMonth = Number(cycleEnd.slice(5, 7));
+  const endYear = Number(cycleEnd.slice(0, 4));
+  const pm = endMonth === 1 ? 12 : endMonth - 1;
+  const py = endMonth === 1 ? endYear - 1 : endYear;
+  const cycleStart = addDaysCivil(closingIn(py, pm), 1);
+
+  let purchasesCents = 0;
+  let creditsCents = 0;
+  for (const mv of movements) {
+    if (mv.isDeleted || mv.accountId !== card.accountId) continue;
+    if (mv.effectiveDate < cycleStart || mv.effectiveDate > cycleEnd) continue;
+    if (mv.signedCents < 0) purchasesCents += -mv.signedCents;
+    else creditsCents += mv.signedCents;
+  }
+  return { cycleStart, cycleEnd, purchasesCents, creditsCents };
 }
 
 export function computeObligationOpenCents(obligation: Obligation, settlements: Settlement[]): number {
