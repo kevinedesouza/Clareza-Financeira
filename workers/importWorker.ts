@@ -88,6 +88,15 @@ export function processImportPayload(input: ProcessBatchInput): {
     warnings.push(...parsed.warnings);
     institutionKey = parsed.bankId || 'ofx-bank';
     accountKey = parsed.acctId || input.accountId;
+    // Alguns bancos (ex.: Nubank) repetem o FITID entre a compra internacional e o IOF dela.
+    // A 2ª ocorrência em diante ganha um sufixo estável, para cada linha ter identidade própria.
+    const fitidSeen = new Map<string, number>();
+    const uniqueFitid = (fitid?: string) => {
+      if (!fitid) return fitid;
+      const n = (fitidSeen.get(fitid) ?? 0) + 1;
+      fitidSeen.set(fitid, n);
+      return n === 1 ? fitid : `${fitid}#${n}`;
+    };
     rawRows = parsed.transactions.map((t) => ({
       id: crypto.randomUUID(),
       batchId: input.batchId,
@@ -102,7 +111,7 @@ export function processImportPayload(input: ProcessBatchInput): {
       normalizedDate: t.normalizedDate,
       normalizedDescription: t.normalizedDescription,
       normalizedCents: t.signedCents,
-      externalFitid: t.fitid,
+      externalFitid: uniqueFitid(t.fitid),
       externalInstitution: institutionKey,
       externalAccount: accountKey,
       validationErrors: t.validationErrors,

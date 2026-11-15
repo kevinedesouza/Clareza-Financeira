@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
 import { AccountMovement, WorkspaceData } from '../../lib/domain/types';
 import { computeCardCycle, computeCardDebtSummary } from '../../lib/domain/ledger';
-import { formatCivilDateBR, parseMoneyToCents, splitInstallments, todayCivilSaoPaulo } from '../../lib/domain/money';
+import { formatBRL, formatCivilDateBR, parseMoneyToCents, splitInstallments, todayCivilSaoPaulo } from '../../lib/domain/money';
 import { apiRequest, createOperationKey } from '../../lib/api/client';
 import { Button, FinancialValue, StatusTag } from '../ui/Primitives';
 import { PaginationBar, usePagination } from '../ui/Pagination';
-import { Archive, ArchiveRestore, CreditCard, Pencil, Plus, Receipt, X } from 'lucide-react';
+import { Archive, ArchiveRestore, CreditCard, Pencil, Plus, Receipt, Scale, X } from 'lucide-react';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { useToast } from '../ui/Toast';
 
@@ -111,6 +111,54 @@ export const CardsView: React.FC<Props> = ({ workspace, onRefresh, onPayBill }) 
   const toast = useToast();
   const [archiveTarget, setArchiveTarget] = useState<(typeof cards)[number] | null>(null);
   const [archiveBusy, setArchiveBusy] = useState(false);
+
+  // Conciliação da fatura: compara o total que o banco mostra com a soma dos lançamentos do cartão
+  const [recCard, setRecCard] = useState<(typeof cards)[number] | null>(null);
+  const [recDate, setRecDate] = useState(todayCivilSaoPaulo());
+  const [recAmountStr, setRecAmountStr] = useState('');
+  const [recBusy, setRecBusy] = useState(false);
+  const [recError, setRecError] = useState<string | null>(null);
+
+  const openReconcile = (card: (typeof cards)[number]) => {
+    setRecCard(card);
+    setRecDate(todayCivilSaoPaulo());
+    setRecAmountStr('');
+    setRecError(null);
+  };
+
+  const handleReconcile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!recCard) return;
+    const cents = parseMoneyToCents(recAmountStr, ',');
+    if (cents === null || cents < 0) {
+      setRecError('Informe o total da fatura que aparece no app do banco (ex.: 2.391,66).');
+      return;
+    }
+    setRecBusy(true);
+    setRecError(null);
+    try {
+      // No cartão, o saldo é negativo quando há dívida
+      const r = await apiRequest<{ reconciliation: { status: string; differenceCents: number; calculatedBalanceCents: number } }>(
+        '/api/reconciliations',
+        { method: 'POST', body: { accountId: recCard.accountId, cutoffDate: recDate, reportedBalanceCents: -cents } }
+      );
+      await onRefresh();
+      if (r.reconciliation.status === 'matched') {
+        toast({ message: `Fatura conciliada até ${formatCivilDateBR(recDate)}. Os lançamentos foram marcados como conferidos.` });
+        setRecCard(null);
+      } else {
+        const appDebt = -r.reconciliation.calculatedBalanceCents;
+        const diff = Math.abs(r.reconciliation.differenceCents);
+        setRecError(
+          `Não bateu: o app soma ${formatBRL(appDebt)} até ${formatCivilDateBR(recDate)} e o banco ${formatBRL(cents)} (diferença de ${formatBRL(diff)}). Confira se falta ou sobra algum lançamento, ou se a data é a mesma do banco.`
+        );
+      }
+    } catch (err) {
+      setRecError(err instanceof Error ? err.message : 'Não foi possível conciliar.');
+    } finally {
+      setRecBusy(false);
+    }
+  };
 
   /** Arquiva/reativa o cartão e a conta de fatura ligada a ele. */
   const setCardArchived = async (card: (typeof cards)[number], isArchived: boolean) => {
@@ -379,6 +427,10 @@ export const CardsView: React.FC<Props> = ({ workspace, onRefresh, onPayBill }) 
                     <Receipt className="h-4 w-4" aria-hidden="true" />
                     Registrar pagamento de fatura
                   </Button>
+                  <Button variant="secondary" onClick={() => openReconcile(card)}>
+                    <Scale className="h-4 w-4" aria-hidden="true" />
+                    Conciliar fatura
+                  </Button>
                   <Button variant="secondary" onClick={() => setInstCardId(card.id)}>
                     <Plus className="h-4 w-4" aria-hidden="true" />
                     Compra parcelada
@@ -416,6 +468,79 @@ export const CardsView: React.FC<Props> = ({ workspace, onRefresh, onPayBill }) 
           </ul>
         </details>
       )}
+      {recCard && (
+        <div
+          className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/50 p-0 md:p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="rec-card-title"
+          onClick={(e) => e.target === e.currentTarget && !recBusy && setRecCard(null)}
+        >
+          <form
+            onSubmit={handleReconcile}
+            className="w-full max-w-md rounded-t-[20px] md:rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5 md:p-6 pb-[max(1.25rem,env(safe-area-inset-bottom))] shadow-xl space-y-4"
+          >
+            <div className="flex items-center justify-between border-b border-[var(--color-border)] pb-3">
+              <h3 id="rec-card-title" className="text-base font-semibold text-[var(--color-text)]">
+                Conciliar fatura · {recCard.name}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setRecCard(null)}
+                aria-label="Fechar"
+                className="focus-ring flex h-10 w-10 items-center justify-center rounded-lg text-[var(--color-text-secondary)] cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <p className="text-xs text-[var(--color-text-secondary)]">
+              Abra a fatura atual no app do banco e informe o total até a data abaixo. Se bater com a soma dos lançamentos, todos até essa data ficam como conciliados.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label htmlFor="rec-card-date" className="mb-1 block text-xs font-medium text-[var(--color-text-secondary)]">
+                  Lançamentos até
+                </label>
+                <input
+                  id="rec-card-date"
+                  type="date"
+                  value={recDate}
+                  onChange={(e) => setRecDate(e.target.value)}
+                  className="focus-ring w-full min-h-[44px] rounded-lg border border-[var(--color-control-border)] bg-[var(--color-surface)] px-3 text-sm"
+                />
+              </div>
+              <div>
+                <label htmlFor="rec-card-amount" className="mb-1 block text-xs font-medium text-[var(--color-text-secondary)]">
+                  Total no banco (R$)
+                </label>
+                <input
+                  id="rec-card-amount"
+                  type="text"
+                  inputMode="decimal"
+                  placeholder="Ex.: 2.391,66"
+                  value={recAmountStr}
+                  onChange={(e) => setRecAmountStr(e.target.value)}
+                  className="focus-ring financial-value w-full min-h-[44px] rounded-lg border border-[var(--color-control-border)] bg-[var(--color-surface)] px-3 text-sm font-semibold"
+                />
+              </div>
+            </div>
+            {recError && (
+              <p role="alert" className="rounded-lg bg-[var(--color-warning-soft)] px-3 py-2 text-xs text-[var(--color-warning)]">
+                {recError}
+              </p>
+            )}
+            <div className="flex flex-wrap justify-end gap-2 border-t border-[var(--color-border)] pt-3">
+              <Button variant="ghost" onClick={() => setRecCard(null)} disabled={recBusy}>
+                Cancelar
+              </Button>
+              <Button type="submit" variant="primary" loading={recBusy}>
+                Conciliar
+              </Button>
+            </div>
+          </form>
+        </div>
+      )}
+
       <ConfirmDialog
         open={!!archiveTarget}
         title={`Arquivar o cartão "${archiveTarget?.name ?? ''}"?`}

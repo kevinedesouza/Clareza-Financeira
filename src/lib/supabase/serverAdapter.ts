@@ -33,6 +33,7 @@ import {
   computeAccountBalance,
   createDefaultCategories,
   generateRecurrenceDates,
+  computeCardBalanceAt,
 } from '../domain/ledger';
 import { splitInstallments, todayCivilSaoPaulo } from '../domain/money';
 import { futureInstallmentDates, parseInstallment } from '../importers/cardStatement';
@@ -1334,8 +1335,10 @@ export async function sbCreateReconciliation(
   }));
 
   const targetCutoff = cutoffDate || todayCivilSaoPaulo();
-  const summary = computeAccountBalance(acc, movs, recs, targetCutoff);
-  const calculated = summary.rawComputedCents;
+  const calculated =
+    acc.type === 'credit_card'
+      ? computeCardBalanceAt(acc, movs, targetCutoff)
+      : computeAccountBalance(acc, movs, recs, targetCutoff).rawComputedCents;
   const diff = reportedBalanceCents - calculated;
   const recStatus: Reconciliation['status'] = diff === 0 ? 'matched' : 'divergent';
 

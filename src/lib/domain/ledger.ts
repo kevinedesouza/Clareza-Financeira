@@ -122,6 +122,20 @@ export function computeAccountBalance(
  * Compras reduzem saldo contábil assinado; pagamentos aumentam.
  * Dívida positiva exibida = max(0, -signedBalance); Crédito a favor = max(0, signedBalance).
  */
+/**
+ * Saldo do cartão até uma data (negativo = dívida). Usa a mesma base de computeCardDebtSummary:
+ * todos os lançamentos do cartão, inclusive os anteriores à data de abertura (a fatura aberta
+ * costuma começar antes do dia em que o cartão foi cadastrado).
+ */
+export function computeCardBalanceAt(account: Account, movements: AccountMovement[], cutoffDate: string): number {
+  return (
+    account.openingBalanceCents +
+    movements
+      .filter((m) => !m.isDeleted && m.accountId === account.id && m.effectiveDate <= cutoffDate)
+      .reduce((acc, m) => acc + m.signedCents, 0)
+  );
+}
+
 export function computeCardDebtSummary(
   card: Card,
   account: Account,

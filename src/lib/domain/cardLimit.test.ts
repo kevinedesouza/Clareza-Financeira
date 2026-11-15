@@ -54,3 +54,10 @@ test('disponível nunca fica negativo', () => {
   const s = computeCardDebtSummary(card, account, [mov('x', -260000, '2026-11-01')], [ob('f', 'p9', 2, 5000)], [], []);
   assert.equal(s.availableEstimatedCents, 0);
 });
+
+test('saldo do cartão para conciliação inclui lançamentos anteriores à abertura da conta', async () => {
+  const { computeCardBalanceAt } = await import('./ledger.ts');
+  const acc = { ...account, openingDate: '2026-11-14' };
+  const movements = [mov('antes', -14025, '2026-10-27'), mov('depois', -799, '2026-11-15'), mov('futuro', -1000, '2026-11-20')];
+  assert.equal(computeCardBalanceAt(acc, movements, '2026-11-15'), -14824);
+});
