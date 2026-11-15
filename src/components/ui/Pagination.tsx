@@ -87,7 +87,7 @@ export const PaginationBar: React.FC<PaginationBarProps> = ({
           onClick={() => setPage(page - 1)}
           disabled={page <= 1}
           aria-label="Página anterior"
-          className="focus-ring inline-flex h-8 w-8 items-center justify-center rounded-md border border-[var(--color-control-border)] disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
+          className="focus-ring inline-flex h-10 w-10 md:h-8 md:w-8 items-center justify-center rounded-md border border-[var(--color-control-border)] disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
         >
           <ChevronLeft className="h-4 w-4" aria-hidden="true" />
         </button>
@@ -99,7 +99,7 @@ export const PaginationBar: React.FC<PaginationBarProps> = ({
           onClick={() => setPage(page + 1)}
           disabled={page >= totalPages}
           aria-label="Próxima página"
-          className="focus-ring inline-flex h-8 w-8 items-center justify-center rounded-md border border-[var(--color-control-border)] disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
+          className="focus-ring inline-flex h-10 w-10 md:h-8 md:w-8 items-center justify-center rounded-md border border-[var(--color-control-border)] disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
         >
           <ChevronRight className="h-4 w-4" aria-hidden="true" />
         </button>

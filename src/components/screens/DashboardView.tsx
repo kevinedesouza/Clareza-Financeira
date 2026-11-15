@@ -207,8 +207,8 @@ export const DashboardView: React.FC<Props> = ({
       </section>
 
       {/* Segunda Linha: Evolução de caixa + Gastos por categoria (competência) */}
-      <section className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-        <div className="lg:col-span-7 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5 md:p-6">
+      <section className="grid grid-cols-1 gap-6 xl:grid-cols-12">
+        <div className="xl:col-span-7 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5 md:p-6">
           <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
             <div>
               <h2 className="text-base font-semibold text-[var(--color-text)]">Evolução do saldo de caixa</h2>
@@ -224,7 +224,7 @@ export const DashboardView: React.FC<Props> = ({
           <CashEvolutionChart series={metrics.evolutionSeries} todayDate={todayDate} privacyMode={privacy} />
         </div>
 
-        <div className="lg:col-span-5 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5 md:p-6">
+        <div className="xl:col-span-5 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5 md:p-6">
           <div className="mb-4 flex items-baseline justify-between gap-2">
             <h2 className="text-base font-semibold text-[var(--color-text)]">Gastos por categoria</h2>
             <StatusTag label="Por competência" tone="neutral" />
@@ -238,9 +238,9 @@ export const DashboardView: React.FC<Props> = ({
       </section>
 
       {/* Terceira Linha: Vencimentos, Planejamento (Orçamentos/Metas) e Insights + Qualidade */}
-      <section className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+      <section className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-12">
         {/* Próximos vencimentos */}
-        <div className="lg:col-span-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5 md:p-6">
+        <div className="xl:col-span-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5 md:p-6">
           <div className="mb-4 flex items-center justify-between gap-2">
             <h2 className="text-base font-semibold text-[var(--color-text)]">Próximos vencimentos</h2>
             <button
@@ -286,10 +286,10 @@ export const DashboardView: React.FC<Props> = ({
         </div>
 
         {/* Orçamentos prioritários e Metas */}
-        <div className="lg:col-span-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5 md:p-6 space-y-5">
+        <div className="xl:col-span-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5 md:p-6 space-y-5">
           <div>
             <div className="mb-3 flex items-center justify-between gap-2">
-              <h2 className="text-base font-semibold text-[var(--color-text)]">Orçamentos ({monthKey})</h2>
+              <h2 className="text-base font-semibold text-[var(--color-text)]">Orçamentos do mês</h2>
               <button
                 type="button"
                 onClick={() => onNavigate('planning')}
@@ -360,7 +360,7 @@ export const DashboardView: React.FC<Props> = ({
         </div>
 
         {/* Insights verificáveis + Qualidade dos dados */}
-        <div className="lg:col-span-4 space-y-6">
+        <div className="md:col-span-2 xl:col-span-4 space-y-6">
           <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5 md:p-6">
             <div className="mb-3 flex items-center justify-between gap-2">
               <h2 className="text-base font-semibold text-[var(--color-text)]">Insights verificáveis</h2>
@@ -412,7 +412,7 @@ export const DashboardView: React.FC<Props> = ({
               )}
             </div>
             {qualityPendencies > 0 && (
-              <div className="mt-3 flex gap-2">
+              <div className="mt-3 flex flex-wrap gap-2">
                 <Button
                   variant="secondary"
                   onClick={() => onNavigate('transactions', { reviewPending: true })}

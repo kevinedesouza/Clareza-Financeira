@@ -8,6 +8,13 @@ import { PaginationBar, usePagination } from '../ui/Pagination';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { Download, Plus, Search, Trash2, X } from 'lucide-react';
 
+/** Nome da conta; cartões ganham o prefixo "Cartão" só quando o nome ainda não o tem. */
+function accountLabel(acc?: { name: string; type: string }): string {
+  if (!acc) return 'Conta';
+  if (acc.type === 'credit_card' && !/cart[aã]o/i.test(acc.name)) return `Cartão · ${acc.name}`;
+  return acc.name;
+}
+
 interface Props {
   workspace: WorkspaceData;
   initialCategoryFilter?: string;
@@ -135,33 +142,39 @@ export const TransactionsView: React.FC<Props> = ({
     }
   };
 
-  const handleDelete = async (mov: AccountMovement) => {
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const handleDelete = async (password?: string) => {
+    if (!selectedMov) return;
     setSaving(true);
-    setDrawerError(null);
+    setDeleteError(null);
     try {
-      await apiRequest(`/api/movements/${mov.id}`, {
+      await apiRequest(`/api/movements/${selectedMov.id}`, {
         method: 'DELETE',
-        body: { reason: 'Excluído pelo usuário na tela de Lançamentos' },
+        body: { reason: 'Excluído pelo usuário na tela de Lançamentos', password },
       });
       await onRefresh();
+      setDeleteConfirmOpen(false);
       setSelectedMov(null);
     } catch (err) {
-      setDrawerError(err instanceof Error ? err.message : 'Falha ao excluir.');
+      setDeleteError(err instanceof Error ? err.message : 'Falha ao excluir.');
     } finally {
       setSaving(false);
     }
   };
 
-  const handleBulkDelete = async () => {
+  const [bulkError, setBulkError] = useState<string | null>(null);
+  const handleBulkDelete = async (password?: string) => {
     const ids = Array.from(selectedIds);
     setBulkBusy(true);
     setBulkMsg(null);
+    setBulkError(null);
     try {
       let deleted = 0;
       for (let i = 0; i < ids.length; i += 500) {
         const r = await apiRequest<{ deleted: number }>('/api/movements/bulk-delete', {
           method: 'POST',
-          body: { ids: ids.slice(i, i + 500), reason: 'Exclusão em lote pelo usuário na tela de Lançamentos' },
+          body: { ids: ids.slice(i, i + 500), reason: 'Exclusão em lote pelo usuário na tela de Lançamentos', password },
         });
         deleted += r.deleted;
       }
@@ -170,8 +183,8 @@ export const TransactionsView: React.FC<Props> = ({
       setBulkMsg(`${deleted} lançamento(s) excluído(s).`);
       await onRefresh();
     } catch (err) {
-      setBulkConfirmOpen(false);
-      setBulkMsg(err instanceof Error ? err.message : 'Falha ao excluir os lançamentos.');
+      // Mantém o diálogo aberto para nova tentativa (ex.: senha incorreta)
+      setBulkError(err instanceof Error ? err.message : 'Falha ao excluir os lançamentos.');
     } finally {
       setBulkBusy(false);
     }
@@ -287,7 +300,7 @@ export const TransactionsView: React.FC<Props> = ({
             <Download className="h-4 w-4" aria-hidden="true" />
             Exportar CSV
           </Button>
-          <Button variant="primary" onClick={onNewTransaction}>
+          <Button variant="primary" onClick={onNewTransaction} className="lg:hidden">
             <Plus className="h-4 w-4" aria-hidden="true" />
             Novo
           </Button>
@@ -322,7 +335,14 @@ export const TransactionsView: React.FC<Props> = ({
             <Button variant="ghost" size="md" onClick={() => setSelectedIds(new Set())}>
               Limpar seleção
             </Button>
-            <Button variant="destructive" size="md" onClick={() => setBulkConfirmOpen(true)}>
+            <Button
+              variant="destructive"
+              size="md"
+              onClick={() => {
+                setBulkError(null);
+                setBulkConfirmOpen(true);
+              }}
+            >
               <Trash2 className="h-4 w-4" aria-hidden="true" />
               Excluir selecionados
             </Button>
@@ -330,8 +350,22 @@ export const TransactionsView: React.FC<Props> = ({
         </div>
       )}
 
-      {/* Lista Mobile (Cards >= 72px) */}
-      <div className="space-y-2 md:hidden">
+      {/* Lista em cartões (celular, tablet e notebook estreito) */}
+      {pg.pageItems.length > 0 && (
+        <label className="flex items-center gap-2 px-1 text-xs font-medium text-[var(--color-text-secondary)] xl:hidden cursor-pointer">
+          <input
+            type="checkbox"
+            checked={pageAllSelected}
+            ref={(el) => {
+              if (el) el.indeterminate = !pageAllSelected && pageSomeSelected;
+            }}
+            onChange={togglePage}
+            className="h-5 w-5 cursor-pointer"
+          />
+          Selecionar todos desta página
+        </label>
+      )}
+      <div className="space-y-2 xl:hidden">
         {filtered.length === 0 ? (
           <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6 text-center text-sm text-[var(--color-text-secondary)]">
             Nenhum lançamento encontrado para os filtros aplicados.
@@ -370,9 +404,9 @@ export const TransactionsView: React.FC<Props> = ({
                 </div>
                 <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-[var(--color-text-secondary)]">
                   <span>
-                    {formatCivilDateBR(m.effectiveDate)} · {acc?.type === 'credit_card' ? `Cartão · ${acc.name}` : acc?.name || 'Conta'} · {cat?.name || 'Sem categoria'}
+                    {formatCivilDateBR(m.effectiveDate)} · {accountLabel(acc)} · {cat?.name || 'Sem categoria'}
                   </span>
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex flex-wrap items-center gap-1.5">
                     <StatusTag label={chips.natureLabel} tone={chips.natureTone} />
                     <StatusTag label={chips.reconcileLabel} tone={chips.reconcileTone} />
                     {chips.reviewLabel && <StatusTag label={chips.reviewLabel} tone="warning" />}
@@ -386,7 +420,7 @@ export const TransactionsView: React.FC<Props> = ({
       </div>
 
       {/* Tabela Desktop */}
-      <div className="hidden md:block overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)]">
+      <div className="hidden xl:block overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)]">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
             <thead className="border-b border-[var(--color-border)] bg-[var(--color-surface-muted)] text-xs text-[var(--color-text-secondary)]">
@@ -449,7 +483,7 @@ export const TransactionsView: React.FC<Props> = ({
                       <td className="px-4 py-3 text-xs text-[var(--color-text-secondary)]">
                         {acc?.type === 'credit_card' ? (
                           <span className="inline-flex items-center gap-1 rounded-md bg-[var(--color-primary-soft)] px-2 py-0.5 font-medium text-[var(--color-primary)]">
-                            Cartão · {acc.name}
+                            {accountLabel(acc)}
                           </span>
                         ) : (
                           acc?.name || '—'
@@ -462,8 +496,10 @@ export const TransactionsView: React.FC<Props> = ({
                         <StatusTag label={chips.natureLabel} tone={chips.natureTone} />
                       </td>
                       <td className="px-4 py-3">
-                        <StatusTag label={chips.reconcileLabel} tone={chips.reconcileTone} />
-                        {chips.reviewLabel && <StatusTag label={chips.reviewLabel} tone="warning" />}
+                        <div className="flex flex-col items-start gap-1">
+                          <StatusTag label={chips.reconcileLabel} tone={chips.reconcileTone} />
+                          {chips.reviewLabel && <StatusTag label={chips.reviewLabel} tone="warning" />}
+                        </div>
                       </td>
                       <td className="px-4 py-3 text-xs font-mono-ref text-[var(--color-text-secondary)] uppercase">
                         {m.origin === 'system_transfer' ? 'SISTEMA' : m.origin}
@@ -489,11 +525,14 @@ export const TransactionsView: React.FC<Props> = ({
       {selectedMov && (
         <div
           className="fixed inset-0 z-50 flex justify-end bg-black/40"
+          onClick={(e) => {
+            if (e.target === e.currentTarget && !saving) setSelectedMov(null);
+          }}
           role="dialog"
           aria-modal="true"
           aria-labelledby="tx-detail-title"
         >
-          <div className="w-full max-w-md bg-[var(--color-surface)] p-6 shadow-2xl overflow-y-auto border-l border-[var(--color-border)]">
+          <div className="w-full max-w-md bg-[var(--color-surface)] p-5 sm:p-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] shadow-2xl overflow-y-auto border-l border-[var(--color-border)]">
             <div className="flex items-center justify-between border-b border-[var(--color-border)] pb-3">
               <h3 id="tx-detail-title" className="text-base font-semibold text-[var(--color-text)]">
                 Detalhe do lançamento
@@ -583,10 +622,13 @@ export const TransactionsView: React.FC<Props> = ({
                 </div>
               )}
 
-              <div className="flex items-center justify-between pt-4 border-t border-[var(--color-border)]">
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-4 border-t border-[var(--color-border)]">
                 <Button
                   variant="destructive"
-                  onClick={() => handleDelete(selectedMov)}
+                  onClick={() => {
+                    setDeleteError(null);
+                    setDeleteConfirmOpen(true);
+                  }}
                   disabled={saving}
                   className="text-xs"
                 >
@@ -612,9 +654,27 @@ export const TransactionsView: React.FC<Props> = ({
         message="Os lançamentos selecionados serão removidos das listas e dos saldos. Esta ação não pode ser desfeita pela tela."
         confirmLabel="Excluir lançamentos"
         destructive
+        requirePassword
+        error={bulkError}
         loading={bulkBusy}
         onConfirm={handleBulkDelete}
         onCancel={() => setBulkConfirmOpen(false)}
+      />
+      <ConfirmDialog
+        open={deleteConfirmOpen && !!selectedMov}
+        title="Excluir este lançamento?"
+        message={
+          selectedMov
+            ? `"${selectedMov.description}" (${formatCivilDateBR(selectedMov.effectiveDate)}) será removido das listas e dos saldos. Esta ação não pode ser desfeita pela tela.`
+            : ''
+        }
+        confirmLabel="Excluir lançamento"
+        destructive
+        requirePassword
+        error={deleteError}
+        loading={saving}
+        onConfirm={handleDelete}
+        onCancel={() => setDeleteConfirmOpen(false)}
       />
     </div>
   );

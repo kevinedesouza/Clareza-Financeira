@@ -20,12 +20,12 @@ export const FinancialValue: React.FC<{
   }
   if (privacyMode) {
     return (
-      <span className={`financial-value ${className}`} aria-label="Valor oculto">
+      <span className={`financial-value whitespace-nowrap ${className}`} aria-label="Valor oculto">
         R$ •••••
       </span>
     );
   }
-  return <span className={`financial-value ${className}`}>{formatBRL(cents, { showSign })}</span>;
+  return <span className={`financial-value whitespace-nowrap ${className}`}>{formatBRL(cents, { showSign })}</span>;
 };
 
 type SemanticTone = 'neutral' | 'income' | 'expense' | 'warning' | 'transfer' | 'goal';

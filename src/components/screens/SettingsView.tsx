@@ -226,8 +226,8 @@ export const SettingsView: React.FC<Props> = ({
           </form>
           <>
           <ul className="divide-y divide-[var(--color-border)] text-xs">
-            {workspace.categoryRules.map((r) => (
-              <li key={r.id} className="flex justify-between py-2">
+            {rulePg.pageItems.map((r) => (
+              <li key={r.id} className="flex flex-wrap justify-between gap-2 py-2">
                 <span className="font-mono-ref text-[var(--color-text)]">{r.matchText}</span>
                 <span className="text-[var(--color-text-secondary)]">
                   → {workspace.categories.find((c) => c.id === r.targetCategoryId)?.name || 'Categoria'}

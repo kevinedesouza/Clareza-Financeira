@@ -2866,3 +2866,87 @@ async function applyAiCategorySuggestions(
     return { applied: 0, error: err instanceof Error ? err.message : 'erro desconhecido' };
   }
 }
+
+function mapGoalRow(g: any): Goal {
+  return {
+    id: g.id,
+    ownerId: g.owner_id,
+    name: g.name,
+    targetCents: Number(g.target_cents),
+    reservedCents: Number(g.reserved_cents),
+    deadlineDate: g.deadline_date || undefined,
+    version: Number(g.version),
+  };
+}
+
+/** Edita nome, valor-alvo e prazo de uma meta (a reserva é ajustada por /contribute). */
+export async function sbUpdateGoal(
+  sbUser: SupabaseClient,
+  sbAdmin: SupabaseClient | null,
+  ownerId: string,
+  goalId: string,
+  body: Record<string, any>
+): Promise<{ status: number; payload: Record<string, unknown> }> {
+  const { data: row } = await sbUser.from('goals').select('*').eq('id', goalId).eq('owner_id', ownerId).maybeSingle();
+  if (!row) return { status: 404, payload: { code: 'NOT_FOUND', message: 'Meta não encontrada.' } };
+  if (Number.isInteger(body.expectedVersion) && body.expectedVersion !== Number(row.version)) {
+    return {
+      status: 409,
+      payload: { code: 'VERSION_CONFLICT', message: 'Esta meta foi alterada em outro lugar. Atualize a tela e tente de novo.' },
+    };
+  }
+  const patch: Record<string, unknown> = { version: Number(row.version) + 1 };
+  if (typeof body.name === 'string') {
+    const name = body.name.trim();
+    if (!name) return { status: 400, payload: { code: 'VALIDATION_ERROR', message: 'Informe o nome da meta.' } };
+    patch.name = name;
+  }
+  if (body.targetCents !== undefined) {
+    if (!Number.isInteger(body.targetCents) || body.targetCents <= 0) {
+      return { status: 400, payload: { code: 'VALIDATION_ERROR', message: 'O valor-alvo deve ser maior que zero.' } };
+    }
+    patch.target_cents = body.targetCents;
+  }
+  if (body.deadlineDate !== undefined) patch.deadline_date = body.deadlineDate || null;
+
+  const { data, error } = await sbUser
+    .from('goals')
+    .update(patch)
+    .eq('id', goalId)
+    .eq('owner_id', ownerId)
+    .select('*')
+    .single();
+  if (error) throw new Error(error.message);
+  await sbAppendAudit(sbAdmin, ownerId, 'goal', goalId, 'update');
+  return { status: 200, payload: { goal: mapGoalRow(data) } };
+}
+
+/** Exclui uma meta. A reserva é virtual: nenhum saldo bancário é alterado. */
+export async function sbDeleteGoal(
+  sbUser: SupabaseClient,
+  sbAdmin: SupabaseClient | null,
+  ownerId: string,
+  goalId: string
+): Promise<boolean> {
+  const { data: row } = await sbUser.from('goals').select('id,name').eq('id', goalId).eq('owner_id', ownerId).maybeSingle();
+  if (!row) return false;
+  const { error } = await sbUser.from('goals').delete().eq('id', goalId).eq('owner_id', ownerId);
+  if (error) throw new Error(error.message);
+  await sbAppendAudit(sbAdmin, ownerId, 'goal', goalId, 'delete', undefined, { name: String(row.name) });
+  return true;
+}
+
+/** Remove o limite de orçamento de uma categoria no mês. */
+export async function sbDeleteBudget(
+  sbUser: SupabaseClient,
+  sbAdmin: SupabaseClient | null,
+  ownerId: string,
+  budgetId: string
+): Promise<boolean> {
+  const { data: row } = await sbUser.from('budgets').select('id').eq('id', budgetId).eq('owner_id', ownerId).maybeSingle();
+  if (!row) return false;
+  const { error } = await sbUser.from('budgets').delete().eq('id', budgetId).eq('owner_id', ownerId);
+  if (error) throw new Error(error.message);
+  await sbAppendAudit(sbAdmin, ownerId, 'budget', budgetId, 'delete');
+  return true;
+}

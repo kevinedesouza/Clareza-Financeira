@@ -254,7 +254,7 @@ export default function App() {
     >
       {/* Barra contextual de período e contas nas telas analíticas */}
       {(activeTab === 'dashboard' || activeTab === 'reports' || activeTab === 'planning') && (
-        <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-3">
+        <div className="mb-4 md:mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-3">
           <div className="flex flex-wrap items-center gap-3">
             <label htmlFor="ctx-month" className="text-xs font-medium text-[var(--color-text-secondary)]">
               Período:
@@ -284,7 +284,7 @@ export default function App() {
               </select>
             )}
           </div>
-          <span className="text-xs text-[var(--color-text-secondary)]">
+          <span className="hidden md:inline text-xs text-[var(--color-text-secondary)]">
             Moeda: BRL · Fuso: America/Sao_Paulo
           </span>
         </div>

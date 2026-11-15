@@ -222,11 +222,15 @@ export const ImportsView: React.FC<Props> = ({
           )}
         </div>
 
-        <ol className="mb-6 grid grid-cols-5 gap-2 text-center text-xs">
+        <p className="mb-2 text-xs font-medium text-[var(--color-text-secondary)] sm:hidden" aria-live="polite">
+          Passo {step + 1} de {STEPS.length}: <span className="text-[var(--color-text)]">{STEPS[step]}</span>
+        </p>
+        <ol className="mb-6 grid grid-cols-5 gap-1.5 sm:gap-2 text-center text-xs" aria-label="Etapas da importação">
           {STEPS.map((label, idx) => (
             <li
               key={label}
-              className={`rounded-lg py-2 px-1 font-medium border ${
+              aria-current={idx === step ? 'step' : undefined}
+              className={`rounded-lg py-2 px-1 font-medium border leading-tight ${
                 idx === step
                   ? 'border-[var(--color-primary)] bg-[var(--color-primary-soft)] text-[var(--color-primary)]'
                   : idx < step
@@ -234,8 +238,8 @@ export const ImportsView: React.FC<Props> = ({
                     : 'border-[var(--color-border)] text-[var(--color-text-secondary)]'
               }`}
             >
-              <span className="hidden sm:inline">{idx + 1}. </span>
-              {label}
+              <span aria-hidden="true" className="sm:hidden">{idx + 1}</span>
+              <span className="sr-only sm:not-sr-only">{idx + 1}. {label}</span>
             </li>
           ))}
         </ol>

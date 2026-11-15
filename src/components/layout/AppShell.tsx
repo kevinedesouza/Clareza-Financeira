@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { UserProfile } from '../../lib/domain/types';
 import {
   ArrowLeftRight,
@@ -100,6 +100,21 @@ export const AppShell: React.FC<Props> = ({
   const [showAddSheet, setShowAddSheet] = useState(false);
   const [showMoreSheet, setShowMoreSheet] = useState(false);
 
+  const inMoreMenu = !['dashboard', 'transactions', 'agenda'].includes(activeTab);
+
+  // Esc fecha as folhas inferiores
+  useEffect(() => {
+    if (!showAddSheet && !showMoreSheet) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setShowAddSheet(false);
+        setShowMoreSheet(false);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [showAddSheet, showMoreSheet]);
+
   const timeFormatted = (() => {
     try {
       return new Date(lastUpdatedAt).toLocaleTimeString('pt-BR', {
@@ -113,11 +128,11 @@ export const AppShell: React.FC<Props> = ({
   })();
 
   return (
-    <div className="min-h-screen bg-[var(--color-bg)] text-[var(--color-text)] flex flex-col lg:flex-row">
-      {/* Sidebar Desktop (>= 1200px / xl) */}
+    <div className="min-h-screen bg-[var(--color-bg)] text-[var(--color-text)] flex flex-col">
+      {/* Menu lateral (notebook e desktop, >= 1024px) */}
       <aside
         aria-label="Navegação principal"
-        className="hidden xl:flex xl:w-64 xl:flex-col xl:fixed xl:inset-y-0 bg-[var(--color-brand)] text-white border-r border-white/10"
+        className="hidden lg:flex lg:w-60 xl:w-64 lg:flex-col lg:fixed lg:inset-y-0 lg:z-30 bg-[var(--color-brand)] text-white border-r border-white/10"
       >
         <div className="flex h-16 items-center gap-3 px-5 border-b border-white/10">
           <img src="/icon.svg" alt="" className="h-8 w-8 rounded-lg" />
@@ -137,6 +152,7 @@ export const AppShell: React.FC<Props> = ({
                       <button
                         type="button"
                         onClick={() => onSelectTab(item.id)}
+                        aria-current={active ? 'page' : undefined}
                         className={`focus-ring flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors cursor-pointer whitespace-nowrap ${
                           active
                             ? 'bg-white/15 text-white'
@@ -171,13 +187,13 @@ export const AppShell: React.FC<Props> = ({
       </aside>
 
       {/* Área Principal */}
-      <div className="flex-1 flex flex-col xl:pl-64 min-w-0">
+      <div className="flex-1 flex flex-col lg:pl-60 xl:pl-64 min-w-0">
         <OfflineBanner />
 
         {/* Header Top Bar */}
         <header className="sticky top-0 z-30 flex h-14 md:h-16 items-center justify-between gap-4 border-b border-[var(--color-border)] bg-[var(--color-surface)]/95 backdrop-blur-sm px-4 md:px-6">
           <div className="flex items-center gap-3 min-w-0">
-            <img src="/icon.svg" alt="" className="h-7 w-7 rounded-md xl:hidden shrink-0" />
+            <img src="/icon.svg" alt="" className="h-7 w-7 rounded-md lg:hidden shrink-0" />
             <div className="min-w-0">
               <h1 className="text-base md:text-lg font-bold text-[var(--color-text)] truncate">
                 {TAB_TITLES[activeTab]}
@@ -186,7 +202,7 @@ export const AppShell: React.FC<Props> = ({
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
-            <span className="hidden sm:inline text-xs text-[var(--color-text-secondary)] mr-2">
+            <span className="hidden md:inline text-xs text-[var(--color-text-secondary)] mr-2 whitespace-nowrap">
               Atualizado às {timeFormatted}
             </span>
 
@@ -200,7 +216,7 @@ export const AppShell: React.FC<Props> = ({
               {profile.privacyMode ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
             </button>
 
-            <div className="hidden md:flex items-center gap-2">
+            <div className="hidden lg:flex items-center gap-2">
               <Button variant="secondary" onClick={() => onSelectTab('imports')}>
                 <Upload className="h-4 w-4" aria-hidden="true" />
                 Importar extrato
@@ -214,15 +230,15 @@ export const AppShell: React.FC<Props> = ({
         </header>
 
         {/* Conteúdo da página */}
-        <main className="mx-auto w-full max-w-[1440px] flex-1 p-4 md:p-6 pb-24 xl:pb-8">
+        <main className="mx-auto w-full max-w-[1440px] flex-1 p-4 md:p-6 pb-[calc(6rem+env(safe-area-inset-bottom))] lg:pb-8">
           {children}
         </main>
       </div>
 
-      {/* Navegação Inferior Mobile / Tablet (< 1200px) */}
+      {/* Navegação inferior (celular e tablet, < 1024px) */}
       <nav
         aria-label="Navegação inferior"
-        className="fixed bottom-0 left-0 right-0 z-40 xl:hidden border-t border-[var(--color-border)] bg-[var(--color-surface)]/95 backdrop-blur-md pb-safe"
+        className="fixed bottom-0 left-0 right-0 z-40 lg:hidden border-t border-[var(--color-border)] bg-[var(--color-surface)]/95 backdrop-blur-md pb-safe"
       >
         <div className="grid h-16 grid-cols-5 items-center">
           <button
@@ -273,7 +289,10 @@ export const AppShell: React.FC<Props> = ({
           <button
             type="button"
             onClick={() => setShowMoreSheet(true)}
-            className="flex min-h-[44px] flex-col items-center justify-center gap-0.5 text-[11px] font-medium text-[var(--color-text-secondary)] cursor-pointer"
+            aria-current={inMoreMenu ? 'page' : undefined}
+            className={`flex min-h-[44px] flex-col items-center justify-center gap-0.5 text-[11px] font-medium cursor-pointer ${
+              inMoreMenu ? 'text-[var(--color-primary)]' : 'text-[var(--color-text-secondary)]'
+            }`}
           >
             <Menu className="h-5 w-5" aria-hidden="true" />
             <span>Mais</span>
@@ -284,12 +303,13 @@ export const AppShell: React.FC<Props> = ({
       {/* Bottom Sheet: Adicionar (Receita, Despesa, Transferência) */}
       {showAddSheet && (
         <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 xl:hidden"
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 lg:hidden"
           role="dialog"
           aria-modal="true"
           aria-label="Escolher tipo de registro"
+          onClick={(e) => e.target === e.currentTarget && setShowAddSheet(false)}
         >
-          <div className="w-full rounded-t-[20px] border-t border-[var(--color-border)] bg-[var(--color-surface)] p-5 pb-8 space-y-3">
+          <div className="w-full rounded-t-[20px] border-t border-[var(--color-border)] bg-[var(--color-surface)] p-5 pb-[max(2rem,env(safe-area-inset-bottom))] space-y-3">
             <div className="flex items-center justify-between">
               <h3 className="text-base font-semibold text-[var(--color-text)]">Novo registro</h3>
               <button
@@ -344,12 +364,13 @@ export const AppShell: React.FC<Props> = ({
       {/* Bottom Sheet: Mais (Todos os módulos P0/P1) */}
       {showMoreSheet && (
         <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 xl:hidden"
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 lg:hidden"
           role="dialog"
           aria-modal="true"
           aria-label="Menu completo"
+          onClick={(e) => e.target === e.currentTarget && setShowMoreSheet(false)}
         >
-          <div className="w-full max-h-[85vh] overflow-y-auto rounded-t-[20px] border-t border-[var(--color-border)] bg-[var(--color-surface)] p-5 pb-8 space-y-4">
+          <div className="w-full max-h-[85vh] overflow-y-auto rounded-t-[20px] border-t border-[var(--color-border)] bg-[var(--color-surface)] p-5 pb-[max(2rem,env(safe-area-inset-bottom))] space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="text-base font-semibold text-[var(--color-text)]">Módulos do Clareza</h3>
               <button
@@ -382,10 +403,15 @@ export const AppShell: React.FC<Props> = ({
                       setShowMoreSheet(false);
                       onSelectTab(m.id);
                     }}
-                    className="flex min-h-[52px] items-center gap-2.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-muted)]/50 px-3 text-left text-sm font-medium text-[var(--color-text)]"
+                    aria-current={activeTab === m.id ? 'page' : undefined}
+                    className={`flex min-h-[52px] items-center gap-2.5 rounded-xl border px-3 text-left text-sm font-medium text-[var(--color-text)] ${
+                      activeTab === m.id
+                        ? 'border-[var(--color-primary)] bg-[var(--color-primary-soft)]'
+                        : 'border-[var(--color-border)] bg-[var(--color-surface-muted)]/50'
+                    }`}
                   >
                     <Icon className="h-4 w-4 text-[var(--color-primary)] shrink-0" aria-hidden="true" />
-                    <span className="truncate">{m.label}</span>
+                    <span className="min-w-0 leading-tight">{m.label}</span>
                   </button>
                 );
               })}

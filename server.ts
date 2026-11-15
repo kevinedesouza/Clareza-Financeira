@@ -66,6 +66,9 @@ import {
   sbUpdateMovement,
   sbUpdateProfile,
   sbUpsertBudget,
+  sbUpdateGoal,
+  sbDeleteGoal,
+  sbDeleteBudget,
 } from './src/lib/supabase/serverAdapter';
 
 dotenv.config();
@@ -215,6 +218,45 @@ const requireAuth = asyncRoute(async (req: AuthedRequest, res: Response, next: N
   req.useSupabase = true;
   next();
 });
+
+// Confirmação de senha para ações destrutivas (exclusões). Limita tentativas erradas por usuário.
+const PASSWORD_FAILS = new Map<string, { count: number; until: number }>();
+const PASSWORD_MAX_FAILS = 5;
+const PASSWORD_LOCK_MS = 15 * 60 * 1000;
+
+async function requirePasswordConfirmation(req: AuthedRequest, res: Response): Promise<boolean> {
+  const userId = req.userId!;
+  const now = Date.now();
+  const state = PASSWORD_FAILS.get(userId);
+  if (state && state.count >= PASSWORD_MAX_FAILS && state.until > now) {
+    res.status(429).json({
+      code: 'PASSWORD_LOCKED',
+      message: 'Muitas tentativas de senha incorretas. Aguarde alguns minutos e tente de novo.',
+    });
+    return false;
+  }
+  const password = typeof req.body?.password === 'string' ? req.body.password : '';
+  if (!password) {
+    res.status(400).json({ code: 'PASSWORD_REQUIRED', message: 'Digite sua senha para confirmar a exclusão.' });
+    return false;
+  }
+  const sbAnon = createSupabaseAnonClient();
+  if (!sbAnon || !req.userEmail) {
+    res.status(503).json({ code: 'SUPABASE_NOT_CONFIGURED', message: SUPABASE_NOT_CONFIGURED_MSG });
+    return false;
+  }
+  const { data, error } = await sbAnon.auth.signInWithPassword({ email: req.userEmail, password });
+  if (error || !data.user || data.user.id !== userId) {
+    const next = state && state.until > now ? state.count + 1 : 1;
+    PASSWORD_FAILS.set(userId, { count: next, until: now + PASSWORD_LOCK_MS });
+    res.status(403).json({ code: 'INVALID_PASSWORD', message: 'Senha incorreta. A exclusão não foi feita.' });
+    return false;
+  }
+  PASSWORD_FAILS.delete(userId);
+  // Encerra a sessão extra criada só para conferir a senha (não afeta a sessão atual do navegador).
+  await sbAnon.auth.signOut({ scope: 'local' }).catch(() => undefined);
+  return true;
+}
 
 async function startServer() {
   const app = express();
@@ -477,6 +519,7 @@ async function startServer() {
         res.status(400).json({ code: 'INVALID_IDS', message: 'Informe de 1 a 1000 lançamentos para excluir.' });
         return;
       }
+      if (!(await requirePasswordConfirmation(req, res))) return;
       const out = await sbSoftDeleteMovementsBulk(
         req.sbUser!,
         req.sbAdmin || null,
@@ -492,6 +535,7 @@ async function startServer() {
     '/api/movements/:id',
     requireAuth,
     asyncRoute(async (req: AuthedRequest, res) => {
+      if (!(await requirePasswordConfirmation(req, res))) return;
       const ok = await sbSoftDeleteMovement(req.sbUser!, req.sbAdmin || null, req.userId!, req.params.id, req.body?.reason);
       if (!ok) {
         res.status(404).json({ code: 'NOT_FOUND', message: 'Lançamento não encontrado.' });
@@ -801,6 +845,43 @@ async function startServer() {
 
       const goal = await sbCreateGoal(req.sbUser!, req.userId!, req.body || {});
       res.status(201).json({ goal });
+    })
+  );
+
+  app.delete(
+    '/api/budgets/:id',
+    requireAuth,
+    asyncRoute(async (req: AuthedRequest, res) => {
+      if (!(await requirePasswordConfirmation(req, res))) return;
+      const ok = await sbDeleteBudget(req.sbUser!, req.sbAdmin || null, req.userId!, req.params.id);
+      if (!ok) {
+        res.status(404).json({ code: 'NOT_FOUND', message: 'Limite não encontrado.' });
+        return;
+      }
+      res.json({ ok: true });
+    })
+  );
+
+  app.patch(
+    '/api/goals/:id',
+    requireAuth,
+    asyncRoute(async (req: AuthedRequest, res) => {
+      const out = await sbUpdateGoal(req.sbUser!, req.sbAdmin || null, req.userId!, req.params.id, req.body || {});
+      res.status(out.status).json(out.payload);
+    })
+  );
+
+  app.delete(
+    '/api/goals/:id',
+    requireAuth,
+    asyncRoute(async (req: AuthedRequest, res) => {
+      if (!(await requirePasswordConfirmation(req, res))) return;
+      const ok = await sbDeleteGoal(req.sbUser!, req.sbAdmin || null, req.userId!, req.params.id);
+      if (!ok) {
+        res.status(404).json({ code: 'NOT_FOUND', message: 'Meta não encontrada.' });
+        return;
+      }
+      res.json({ ok: true });
     })
   );
 
