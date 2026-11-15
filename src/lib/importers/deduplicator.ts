@@ -113,6 +113,21 @@ export function evaluateImportRows(
 
       if (candidate) {
         const isManualCandidate = candidate.origin === 'manual';
+        // Repetição exata de um lançamento que já veio de extrato/fatura (mesma data, valor e descrição):
+        // reimportar o mesmo arquivo não deve duplicar nada.
+        const exactRepeat =
+          !isManualCandidate &&
+          candidate.effectiveDate === row.normalizedDate &&
+          candidate.description.trim().toLowerCase() === (row.normalizedDescription ?? '').trim().toLowerCase();
+        if (exactRepeat) {
+          return {
+            ...row,
+            suggestedCategoryId,
+            candidateMovementId: candidate.id,
+            candidateReason: 'Mesmo lançamento já importado nesta conta (data, valor e descrição iguais)',
+            decision: 'already_exists',
+          };
+        }
         return {
           ...row,
           suggestedCategoryId,

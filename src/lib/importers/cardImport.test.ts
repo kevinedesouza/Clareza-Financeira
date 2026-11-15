@@ -58,3 +58,27 @@ test('conta corrente não aplica as regras de fatura', () => {
   const pay = batch.rows.find((r) => /pagamento/i.test(r.normalizedDescription ?? ''))!;
   assert.notEqual(pay.decision, 'excluded_invalid');
 });
+
+test('reimportar a mesma fatura não duplica lançamentos já importados', () => {
+  const first = run();
+  const imported = first.batch.rows
+    .filter((r) => r.decision === 'import_new' || r.decision === 'pending')
+    .map((r, i) => ({
+      id: `m${i}`,
+      ownerId: 'u1',
+      accountId: 'acc-card',
+      signedCents: r.normalizedCents!,
+      effectiveDate: r.normalizedDate!,
+      description: r.normalizedDescription!,
+      origin: 'csv' as const,
+      reviewStatus: 'reviewed' as const,
+      reconciliationStatus: 'unreconciled' as const,
+      isDeleted: false,
+      version: 1,
+      createdAt: '2026-11-15T00:00:00Z',
+    }));
+  const again = run({ existingMovements: imported as any });
+  const repeats = again.batch.rows.filter((r) => r.decision === 'already_exists');
+  assert.equal(repeats.length, imported.length);
+  assert.equal(again.batch.rows.filter((r) => r.decision === 'import_new' || r.decision === 'pending').length, 0);
+});
