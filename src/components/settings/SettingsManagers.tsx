@@ -556,3 +556,122 @@ export const AppLockSettings: React.FC = () => {
     </div>
   );
 };
+
+// ---------------------------------------------------------------------------
+// Zona de perigo: apagar de verdade, sempre com senha
+// ---------------------------------------------------------------------------
+
+export const DangerZone: React.FC<{ workspace: WorkspaceData; onRefresh: () => Promise<void> }> = ({ workspace, onRefresh }) => {
+  const toast = useToast();
+  const [action, setAction] = useState<'purge' | 'reset' | null>(null);
+  const [includeAccounts, setIncludeAccounts] = useState(false);
+  const [includeAudit, setIncludeAudit] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const trashCount = workspace.movements.filter((m) => m.isDeleted).length;
+  const activeCount = workspace.movements.filter((m) => !m.isDeleted).length;
+
+  const open = (a: 'purge' | 'reset') => {
+    setError(null);
+    setIncludeAccounts(false);
+    setIncludeAudit(false);
+    setAction(a);
+  };
+
+  const confirm = async (password?: string) => {
+    setBusy(true);
+    setError(null);
+    try {
+      if (action === 'purge') {
+        const r = await apiRequest<{ removedMovements: number }>('/api/data/purge-deleted', { method: 'POST', body: { password } });
+        toast({ message: `${r.removedMovements} lançamento(s) apagado(s) definitivamente.` });
+      } else {
+        await apiRequest('/api/data/reset', { method: 'POST', body: { password, includeAccounts, includeAudit } });
+        toast({ message: 'Dados apagados. Você pode recomeçar o cadastro.' });
+      }
+      setAction(null);
+      await onRefresh();
+    } catch (err) {
+      setError(errMsg(err, 'Não foi possível apagar.'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const keepList = ['seu login e perfil', 'as categorias', ...(includeAccounts ? [] : ['as contas e cartões']), ...(includeAudit ? [] : ['o histórico de auditoria'])];
+
+  return (
+    <section
+      aria-labelledby="danger-title"
+      className="rounded-xl border border-[var(--color-expense)]/40 bg-[var(--color-surface)] p-4 sm:p-5 md:p-6 space-y-4"
+    >
+      <div>
+        <h3 id="danger-title" className="text-base font-semibold text-[var(--color-expense)]">
+          Zona de perigo
+        </h3>
+        <p className="text-xs text-[var(--color-text-secondary)]">
+          Estas ações apagam de verdade e não podem ser desfeitas. Sempre pedem a sua senha.
+        </p>
+      </div>
+
+      <div className="flex flex-col gap-3 border-t border-[var(--color-border)] pt-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-sm font-medium text-[var(--color-text)]">Esvaziar lixeira</p>
+          <p className="text-xs text-[var(--color-text-secondary)]">
+            Lançamentos excluídos ficam guardados para permitir "Desfazer". Aqui eles são apagados de vez.{' '}
+            {trashCount > 0 ? `${trashCount} na lixeira.` : 'A lixeira está vazia.'}
+          </p>
+        </div>
+        <Button variant="secondary" onClick={() => open('purge')} disabled={trashCount === 0} className="text-[var(--color-expense)]">
+          <Trash2 className="h-4 w-4" aria-hidden="true" />
+          Esvaziar lixeira
+        </Button>
+      </div>
+
+      <div className="flex flex-col gap-3 border-t border-[var(--color-border)] pt-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-sm font-medium text-[var(--color-text)]">Apagar dados financeiros</p>
+          <p className="text-xs text-[var(--color-text-secondary)]">
+            Para recomeçar do zero: lançamentos, importações e extratos, agenda, parcelas, metas, orçamentos e regras.
+            {activeCount > 0 ? ` Hoje há ${activeCount} lançamento(s).` : ''}
+          </p>
+        </div>
+        <Button variant="destructive" onClick={() => open('reset')}>
+          <Trash2 className="h-4 w-4" aria-hidden="true" />
+          Apagar dados
+        </Button>
+      </div>
+
+      <ConfirmDialog
+        open={action !== null}
+        title={action === 'purge' ? 'Esvaziar a lixeira?' : 'Apagar os dados financeiros?'}
+        message={
+          action === 'purge'
+            ? `${trashCount} lançamento(s) excluído(s) serão apagados definitivamente. Não será mais possível desfazer.`
+            : `Serão apagados todos os lançamentos, importações (com os extratos), agenda, parcelas, metas, orçamentos e regras. Fica: ${keepList.join(', ')}. Não pode ser desfeito.`
+        }
+        confirmLabel={action === 'purge' ? 'Esvaziar lixeira' : 'Apagar definitivamente'}
+        destructive
+        requirePassword
+        error={error}
+        loading={busy}
+        onConfirm={confirm}
+        onCancel={() => setAction(null)}
+      >
+        {action === 'reset' && (
+          <div className="mt-4 space-y-2 rounded-lg bg-[var(--color-surface-muted)] p-3 text-sm">
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input type="checkbox" checked={includeAccounts} onChange={(e) => setIncludeAccounts(e.target.checked)} className="mt-0.5 h-4 w-4" />
+              <span>Apagar também as contas e os cartões</span>
+            </label>
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input type="checkbox" checked={includeAudit} onChange={(e) => setIncludeAudit(e.target.checked)} className="mt-0.5 h-4 w-4" />
+              <span>Apagar também o histórico de auditoria</span>
+            </label>
+          </div>
+        )}
+      </ConfirmDialog>
+    </section>
+  );
+};

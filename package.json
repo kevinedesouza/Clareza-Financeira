@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "test": "tsx --test src/lib/domain/*.test.ts src/lib/importers/*.test.ts"
+    "test": "tsx --test src/lib/domain/*.test.ts src/lib/importers/*.test.ts src/lib/supabase/*.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

@@ -79,6 +79,7 @@ import {
   sbDeleteCategoryRule,
   sbRestoreMovements,
 } from './src/lib/supabase/serverAdapter';
+import { sbPurgeDeletedMovements, sbResetFinancialData } from './src/lib/supabase/dataMaintenance';
 
 dotenv.config();
 
@@ -595,6 +596,30 @@ async function startServer() {
         return;
       }
       res.json(out.payload);
+    })
+  );
+
+  // Zona de perigo (Configurações): apagam de verdade, sempre com senha
+  app.post(
+    '/api/data/purge-deleted',
+    requireAuth,
+    asyncRoute(async (req: AuthedRequest, res) => {
+      if (!(await requirePasswordConfirmation(req, res))) return;
+      const out = await sbPurgeDeletedMovements(req.sbUser!, req.sbAdmin || null, req.userId!);
+      res.json({ ok: true, ...out });
+    })
+  );
+
+  app.post(
+    '/api/data/reset',
+    requireAuth,
+    asyncRoute(async (req: AuthedRequest, res) => {
+      if (!(await requirePasswordConfirmation(req, res))) return;
+      const out = await sbResetFinancialData(req.sbUser!, req.sbAdmin || null, req.userId!, {
+        includeAccounts: req.body?.includeAccounts === true,
+        includeAudit: req.body?.includeAudit === true,
+      });
+      res.status(out.status).json(out.payload);
     })
   );
 

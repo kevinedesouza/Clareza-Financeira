@@ -4,7 +4,7 @@ import { apiRequest } from '../../lib/api/client';
 import { Button, PWAInstallButton, StatusTag } from '../ui/Primitives';
 import { PaginationBar, usePagination } from '../ui/Pagination';
 import { SupabaseSqlModal } from '../modals/SupabaseSqlModal';
-import { AppLockSettings, CategoryManager, RuleManager } from '../settings/SettingsManagers';
+import { AppLockSettings, CategoryManager, DangerZone, RuleManager } from '../settings/SettingsManagers';
 import { Download, EyeOff, Moon, RefreshCw, Sun, Table2, Upload } from 'lucide-react';
 
 interface Props {
@@ -257,6 +257,7 @@ export const SettingsView: React.FC<Props> = ({
         supabaseStatus={supabaseStatus}
         onClose={() => setSqlModalOpen(false)}
       />
+      <DangerZone workspace={workspace} onRefresh={onRefresh} />
     </div>
   );
 };
