@@ -21,9 +21,8 @@ export const InsightsView: React.FC<Props> = ({ insights, onRefresh, onNavigateT
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-lg font-semibold text-[var(--color-text)]">Insights verificáveis</h2>
-        <p className="text-xs text-[var(--color-text-secondary)]">
-          Calculados de forma determinística no servidor a partir dos seus registros, com fórmula, período e evidências explícitas.
+        <p className="text-sm text-[var(--color-text-secondary)]">
+          Avisos automáticos sobre o seu dinheiro. Cada um mostra a conta feita e os lançamentos que o geraram.
         </p>
       </div>
 

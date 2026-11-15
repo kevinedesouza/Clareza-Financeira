@@ -4,6 +4,7 @@ import { apiRequest } from '../../lib/api/client';
 import { Button, PWAInstallButton, StatusTag } from '../ui/Primitives';
 import { PaginationBar, usePagination } from '../ui/Pagination';
 import { SupabaseSqlModal } from '../modals/SupabaseSqlModal';
+import { AppLockSettings, CategoryManager, RuleManager } from '../settings/SettingsManagers';
 import { Download, EyeOff, Moon, RefreshCw, Sun, Table2, Upload } from 'lucide-react';
 
 interface Props {
@@ -26,40 +27,10 @@ export const SettingsView: React.FC<Props> = ({
   onTogglePrivacy,
 }) => {
   const restoreInputRef = useRef<HTMLInputElement>(null);
-  const [catName, setCatName] = useState('');
-  const [catKind, setCatKind] = useState<'expense' | 'income'>('expense');
-  const [ruleMatch, setRuleMatch] = useState('');
-  const [ruleCatId, setRuleCatId] = useState(workspace.categories[0]?.id || '');
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [checkingSb, setCheckingSb] = useState(false);
   const [sqlModalOpen, setSqlModalOpen] = useState(false);
-
-  const handleAddCategory = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setErrorMsg(null);
-    if (!catName.trim()) return;
-    await apiRequest('/api/categories', {
-      method: 'POST',
-      body: { name: catName, kind: catKind },
-    });
-    await onRefresh();
-    setCatName('');
-    setStatusMsg('Categoria criada.');
-  };
-
-  const handleAddRule = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setErrorMsg(null);
-    if (!ruleMatch.trim() || !ruleCatId) return;
-    await apiRequest('/api/category-rules', {
-      method: 'POST',
-      body: { matchText: ruleMatch, targetCategoryId: ruleCatId },
-    });
-    await onRefresh();
-    setRuleMatch('');
-    setStatusMsg('Regra de categorização salva.');
-  };
 
   const handleExportPackage = async () => {
     const pkg = await apiRequest<Record<string, unknown>>('/api/exports/package');
@@ -91,7 +62,6 @@ export const SettingsView: React.FC<Props> = ({
     }
   };
 
-  const rulePg = usePagination(workspace.categoryRules, undefined, 'regras');
   const auditPg = usePagination(workspace.auditLogs, undefined, 'auditoria');
   return (
     <div className="space-y-6">
@@ -162,82 +132,14 @@ export const SettingsView: React.FC<Props> = ({
           </div>
           <PWAInstallButton />
         </div>
+
+        <AppLockSettings />
       </section>
 
       {/* Categorias e Regras */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <section className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5 md:p-6 space-y-4">
-          <h3 className="text-base font-semibold text-[var(--color-text)]">Categorias</h3>
-          <form onSubmit={handleAddCategory} className="flex flex-wrap gap-2">
-            <input
-              type="text"
-              placeholder="Nova categoria"
-              value={catName}
-              onChange={(e) => setCatName(e.target.value)}
-              className="focus-ring flex-1 min-h-[40px] rounded-lg border border-[var(--color-control-border)] bg-[var(--color-surface)] px-3 text-sm"
-            />
-            <select
-              value={catKind}
-              onChange={(e) => setCatKind(e.target.value as 'expense' | 'income')}
-              className="focus-ring min-h-[40px] rounded-lg border border-[var(--color-control-border)] bg-[var(--color-surface)] px-2 text-sm"
-            >
-              <option value="expense">Despesa</option>
-              <option value="income">Receita</option>
-            </select>
-            <Button type="submit" variant="primary">
-              Adicionar
-            </Button>
-          </form>
-          <div className="flex flex-wrap gap-2 pt-2">
-            {workspace.categories.map((c) => (
-              <StatusTag
-                key={c.id}
-                label={c.name}
-                tone={c.kind === 'income' ? 'income' : 'neutral'}
-              />
-            ))}
-          </div>
-        </section>
-
-        <section className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5 md:p-6 space-y-4">
-          <h3 className="text-base font-semibold text-[var(--color-text)]">Regras de categorização</h3>
-          <form onSubmit={handleAddRule} className="flex flex-wrap gap-2">
-            <input
-              type="text"
-              placeholder="Palavras (ex: uber|99|cab)"
-              value={ruleMatch}
-              onChange={(e) => setRuleMatch(e.target.value)}
-              className="focus-ring flex-1 min-h-[40px] rounded-lg border border-[var(--color-control-border)] bg-[var(--color-surface)] px-3 text-sm"
-            />
-            <select
-              value={ruleCatId}
-              onChange={(e) => setRuleCatId(e.target.value)}
-              className="focus-ring min-h-[40px] rounded-lg border border-[var(--color-control-border)] bg-[var(--color-surface)] px-2 text-sm"
-            >
-              {workspace.categories.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-            <Button type="submit" variant="primary">
-              Salvar regra
-            </Button>
-          </form>
-          <>
-          <ul className="divide-y divide-[var(--color-border)] text-xs">
-            {rulePg.pageItems.map((r) => (
-              <li key={r.id} className="flex flex-wrap justify-between gap-2 py-2">
-                <span className="font-mono-ref text-[var(--color-text)]">{r.matchText}</span>
-                <span className="text-[var(--color-text-secondary)]">
-                  → {workspace.categories.find((c) => c.id === r.targetCategoryId)?.name || 'Categoria'}
-                </span>
-              </li>
-            ))}
-          </ul>
-          <PaginationBar page={rulePg.page} totalPages={rulePg.totalPages} totalItems={rulePg.totalItems} pageSize={rulePg.pageSize} setPage={rulePg.setPage} label="regras" />
-          </>
-        </section>
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
+        <CategoryManager workspace={workspace} onRefresh={onRefresh} />
+        <RuleManager workspace={workspace} onRefresh={onRefresh} />
       </div>
 
       {/* Exportação pessoal, Diagnóstico e Auditoria */}

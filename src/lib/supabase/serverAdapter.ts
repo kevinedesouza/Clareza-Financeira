@@ -1025,8 +1025,46 @@ export async function sbUpdateMovement(
     };
   }
 
+  const changingValue = Number.isInteger(body.signedCents) && body.signedCents !== Number(movRow.signed_cents);
+  const changingAccount = typeof body.accountId === 'string' && body.accountId && body.accountId !== movRow.account_id;
+  if ((changingValue || changingAccount) && movRow.transfer_group_id) {
+    return {
+      status: 400,
+      code: 'TRANSFER_LOCKED',
+      message: 'Valor e conta de uma transferência não podem ser editados. Exclua e registre a transferência de novo.',
+    };
+  }
+  if ((changingValue || changingAccount) && movRow.origin !== 'manual') {
+    return {
+      status: 400,
+      code: 'IMPORTED_LOCKED',
+      message: 'Valor e conta de um lançamento importado do extrato não podem ser alterados, pois vieram do banco.',
+    };
+  }
+  if (changingValue && body.signedCents === 0) {
+    return { status: 400, code: 'VALIDATION_ERROR', message: 'O valor deve ser diferente de zero.' };
+  }
+  if (changingValue && Math.sign(body.signedCents) !== Math.sign(Number(movRow.signed_cents))) {
+    return {
+      status: 400,
+      code: 'NATURE_CHANGE',
+      message: 'Para transformar uma despesa em receita (ou o contrário), exclua e registre de novo.',
+    };
+  }
+  if (changingAccount) {
+    const { data: target } = await sbUser
+      .from('accounts')
+      .select('id, is_archived')
+      .eq('id', body.accountId)
+      .eq('owner_id', ownerId)
+      .maybeSingle();
+    if (!target || target.is_archived) {
+      return { status: 400, code: 'ACCOUNT_NOT_FOUND', message: 'Conta de destino não encontrada ou arquivada.' };
+    }
+  }
+
   const changingValueOrDate =
-    (Number.isInteger(body.signedCents) && body.signedCents !== Number(movRow.signed_cents)) ||
+    changingValue || changingAccount ||
     (typeof body.effectiveDate === 'string' && body.effectiveDate !== movRow.effective_date);
 
   const movPatch: Record<string, unknown> = {
@@ -1039,7 +1077,7 @@ export async function sbUpdateMovement(
       return {
         status: 400,
         code: 'RECONCILED_REASON_REQUIRED',
-        message: 'Alterar valor ou data de registro conciliado exige informar o motivo e invalida a conferência.',
+        message: 'Alterar valor, conta ou data de registro conciliado exige informar o motivo e invalida a conferência.',
       };
     }
     movPatch.reconciliation_status = 'unreconciled';
@@ -1063,6 +1101,9 @@ export async function sbUpdateMovement(
   }
   if (Number.isInteger(body.signedCents) && body.signedCents !== 0) {
     movPatch.signed_cents = body.signedCents;
+  }
+  if (changingAccount) {
+    movPatch.account_id = body.accountId;
   }
 
   let updatedEventRow: any = null;
@@ -2949,4 +2990,392 @@ export async function sbDeleteBudget(
   if (error) throw new Error(error.message);
   await sbAppendAudit(sbAdmin, ownerId, 'budget', budgetId, 'delete');
   return true;
+}
+
+// ---------------------------------------------------------------------------
+// Agenda: edição, cancelamento e exclusão de obrigações e recorrências
+// ---------------------------------------------------------------------------
+
+type AdapterResult = { status: number; payload: Record<string, unknown> };
+const notFound = (message: string): AdapterResult => ({ status: 404, payload: { code: 'NOT_FOUND', message } });
+const invalid = (message: string): AdapterResult => ({ status: 400, payload: { code: 'VALIDATION_ERROR', message } });
+
+async function settledCentsByObligation(sbUser: SupabaseClient, ownerId: string, obligationIds: string[]) {
+  const out = new Map<string, number>();
+  if (obligationIds.length === 0) return out;
+  const { data } = await sbUser
+    .from('settlements')
+    .select('obligation_id, allocated_cents')
+    .eq('owner_id', ownerId)
+    .in('obligation_id', obligationIds);
+  for (const s of data || []) {
+    out.set(s.obligation_id, (out.get(s.obligation_id) || 0) + Number(s.allocated_cents));
+  }
+  return out;
+}
+
+/**
+ * Edita uma conta agendada. Com cancelRemaining=true, cancela o saldo em aberto
+ * (o que já foi pago continua registrado). Com reopen=true, desfaz o cancelamento.
+ */
+export async function sbUpdateObligation(
+  sbUser: SupabaseClient,
+  sbAdmin: SupabaseClient | null,
+  ownerId: string,
+  obId: string,
+  body: Record<string, any>
+): Promise<AdapterResult> {
+  const { data: row } = await sbUser.from('obligations').select('*').eq('id', obId).eq('owner_id', ownerId).maybeSingle();
+  if (!row) return notFound('Conta agendada não encontrada.');
+  if (Number.isInteger(body.expectedVersion) && body.expectedVersion !== Number(row.version)) {
+    return { status: 409, payload: { code: 'VERSION_CONFLICT', message: 'Este item foi alterado em outro lugar. Atualize a tela e tente de novo.' } };
+  }
+  const paid = (await settledCentsByObligation(sbUser, ownerId, [obId])).get(obId) || 0;
+  const patch: Record<string, unknown> = { version: Number(row.version) + 1, updated_at: new Date().toISOString() };
+  let action = 'update';
+
+  if (body.cancelRemaining === true) {
+    patch.canceled_cents = Math.max(0, Number(row.original_cents) - paid);
+    patch.status = paid > 0 ? 'settled' : 'canceled';
+    action = 'cancel';
+  } else if (body.reopen === true) {
+    patch.canceled_cents = 0;
+    patch.status = paid > 0 ? 'partially_settled' : 'expected';
+    action = 'reopen';
+  } else {
+    if (typeof body.description === 'string') {
+      const d = body.description.trim();
+      if (!d) return invalid('Informe a descrição.');
+      patch.description = d;
+    }
+    if (typeof body.dueDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.dueDate)) {
+      patch.due_date = body.dueDate;
+      if (row.competence_date === row.due_date) patch.competence_date = body.dueDate;
+    }
+    if (body.originalCents !== undefined) {
+      if (!Number.isInteger(body.originalCents) || body.originalCents <= 0) return invalid('O valor deve ser maior que zero.');
+      if (body.originalCents < paid) {
+        return invalid('O valor não pode ser menor do que o que já foi pago desta conta.');
+      }
+      patch.original_cents = body.originalCents;
+    }
+    if ('accountId' in body) patch.account_id = body.accountId || null;
+    if ('categoryId' in body) patch.category_id = body.categoryId || null;
+  }
+
+  const { data, error } = await sbUser.from('obligations').update(patch).eq('id', obId).eq('owner_id', ownerId).select('*').single();
+  if (error) throw new Error(error.message);
+  await sbAppendAudit(sbAdmin, ownerId, 'obligation', obId, action);
+  return { status: 200, payload: { obligation: { id: data.id, version: Number(data.version) } } };
+}
+
+/** Exclui uma conta agendada. Só é permitido se nada foi pago dela (senão, use "cancelar saldo"). */
+export async function sbDeleteObligation(
+  sbUser: SupabaseClient,
+  sbAdmin: SupabaseClient | null,
+  ownerId: string,
+  obId: string
+): Promise<AdapterResult> {
+  const { data: row } = await sbUser.from('obligations').select('id, description').eq('id', obId).eq('owner_id', ownerId).maybeSingle();
+  if (!row) return notFound('Conta agendada não encontrada.');
+  const paid = (await settledCentsByObligation(sbUser, ownerId, [obId])).get(obId) || 0;
+  if (paid > 0) {
+    return {
+      status: 409,
+      payload: {
+        code: 'HAS_SETTLEMENTS',
+        message: 'Esta conta já tem pagamento registrado e não pode ser excluída. Use "Cancelar saldo restante".',
+      },
+    };
+  }
+  const { error } = await sbUser.from('obligations').delete().eq('id', obId).eq('owner_id', ownerId);
+  if (error) throw new Error(error.message);
+  await sbAppendAudit(sbAdmin, ownerId, 'obligation', obId, 'delete', undefined, { description: String(row.description) });
+  return { status: 200, payload: { ok: true } };
+}
+
+/** Remove ocorrências futuras sem pagamento de uma recorrência (a partir de fromDate). */
+async function removeFutureOpenOccurrences(sbUser: SupabaseClient, ownerId: string, recId: string, fromDate: string) {
+  const { data: future } = await sbUser
+    .from('obligations')
+    .select('id')
+    .eq('owner_id', ownerId)
+    .eq('recurrence_id', recId)
+    .gte('due_date', fromDate);
+  const ids = (future || []).map((o: any) => o.id as string);
+  if (ids.length === 0) return 0;
+  const paid = await settledCentsByObligation(sbUser, ownerId, ids);
+  const removable = ids.filter((id) => !paid.get(id));
+  if (removable.length > 0) await sbUser.from('obligations').delete().eq('owner_id', ownerId).in('id', removable);
+  return removable.length;
+}
+
+/**
+ * Edita uma recorrência. Mudanças de descrição/valor/conta/categoria valem para as ocorrências
+ * futuras ainda sem pagamento. isActive=false pausa (remove as futuras em aberto);
+ * endDate encerra a série a partir dessa data.
+ */
+export async function sbUpdateRecurrence(
+  sbUser: SupabaseClient,
+  sbAdmin: SupabaseClient | null,
+  ownerId: string,
+  recId: string,
+  body: Record<string, any>
+): Promise<AdapterResult> {
+  const { data: row } = await sbUser.from('recurrences').select('*').eq('id', recId).eq('owner_id', ownerId).maybeSingle();
+  if (!row) return notFound('Recorrência não encontrada.');
+  const today = todayCivilSaoPaulo();
+  const patch: Record<string, unknown> = {};
+  const obPatch: Record<string, unknown> = {};
+
+  if (typeof body.description === 'string') {
+    const d = body.description.trim();
+    if (!d) return invalid('Informe a descrição.');
+    patch.description = d;
+    obPatch.description = d;
+  }
+  if (body.amountCents !== undefined) {
+    if (!Number.isInteger(body.amountCents) || body.amountCents <= 0) return invalid('O valor deve ser maior que zero.');
+    patch.amount_cents = body.amountCents;
+    obPatch.original_cents = body.amountCents;
+  }
+  if ('accountId' in body) {
+    patch.account_id = body.accountId || null;
+    obPatch.account_id = body.accountId || null;
+  }
+  if ('categoryId' in body) {
+    patch.category_id = body.categoryId || null;
+    obPatch.category_id = body.categoryId || null;
+  }
+  if ('endDate' in body) {
+    if (body.endDate && !/^\d{4}-\d{2}-\d{2}$/.test(body.endDate)) return invalid('Data de término inválida.');
+    patch.end_date = body.endDate || null;
+  }
+  if (typeof body.isActive === 'boolean') patch.is_active = body.isActive;
+  if (Object.keys(patch).length === 0) return invalid('Nada para alterar.');
+
+  const { error } = await sbUser.from('recurrences').update(patch).eq('id', recId).eq('owner_id', ownerId);
+  if (error) throw new Error(error.message);
+
+  let removed = 0;
+  if (body.isActive === false) {
+    removed = await removeFutureOpenOccurrences(sbUser, ownerId, recId, today);
+  } else if (typeof body.endDate === 'string' && body.endDate) {
+    const dayAfter = new Date(`${body.endDate}T12:00:00Z`);
+    dayAfter.setUTCDate(dayAfter.getUTCDate() + 1);
+    removed = await removeFutureOpenOccurrences(sbUser, ownerId, recId, dayAfter.toISOString().slice(0, 10));
+  }
+
+  if (Object.keys(obPatch).length > 0) {
+    const { data: future } = await sbUser
+      .from('obligations')
+      .select('id')
+      .eq('owner_id', ownerId)
+      .eq('recurrence_id', recId)
+      .gte('due_date', today)
+      .neq('status', 'canceled');
+    const ids = (future || []).map((o: any) => o.id as string);
+    const paid = await settledCentsByObligation(sbUser, ownerId, ids);
+    const open = ids.filter((id) => !paid.get(id));
+    if (open.length > 0) await sbUser.from('obligations').update(obPatch).eq('owner_id', ownerId).in('id', open);
+  }
+
+  // Reativar: gera de novo as próximas ocorrências
+  if (body.isActive === true && !row.is_active) {
+    const { data: fresh } = await sbUser.from('recurrences').select('*').eq('id', recId).single();
+    const rec: Recurrence = {
+      id: fresh.id,
+      ownerId,
+      direction: fresh.direction,
+      description: fresh.description,
+      amountCents: Number(fresh.amount_cents),
+      frequency: fresh.frequency,
+      anchorDay: Number(fresh.anchor_day),
+      startDate: fresh.start_date,
+      endDate: fresh.end_date || undefined,
+      accountId: fresh.account_id || undefined,
+      categoryId: fresh.category_id || undefined,
+      isActive: true,
+    };
+    const dates = generateRecurrenceDates(rec, '2027-12-31').filter((d) => d >= today).slice(0, 6);
+    if (dates.length > 0) {
+      await sbUser.from('obligations').upsert(
+        dates.map((dt) => ({
+          owner_id: ownerId,
+          direction: rec.direction,
+          description: rec.description,
+          due_date: dt,
+          competence_date: dt,
+          original_cents: rec.amountCents,
+          canceled_cents: 0,
+          status: 'expected',
+          account_id: rec.accountId || null,
+          category_id: rec.categoryId || null,
+          recurrence_id: rec.id,
+          version: 1,
+        })),
+        { onConflict: 'owner_id,recurrence_id,due_date', ignoreDuplicates: true }
+      );
+    }
+  }
+
+  await sbAppendAudit(sbAdmin, ownerId, 'recurrence', recId, 'update', undefined, { removedOccurrences: removed });
+  return { status: 200, payload: { ok: true, removedOccurrences: removed } };
+}
+
+/** Exclui a recorrência e as ocorrências futuras sem pagamento. As já pagas ficam no histórico. */
+export async function sbDeleteRecurrence(
+  sbUser: SupabaseClient,
+  sbAdmin: SupabaseClient | null,
+  ownerId: string,
+  recId: string
+): Promise<AdapterResult> {
+  const { data: row } = await sbUser.from('recurrences').select('id, description').eq('id', recId).eq('owner_id', ownerId).maybeSingle();
+  if (!row) return notFound('Recorrência não encontrada.');
+  const removed = await removeFutureOpenOccurrences(sbUser, ownerId, recId, '0000-01-01');
+  const { error } = await sbUser.from('recurrences').delete().eq('id', recId).eq('owner_id', ownerId);
+  if (error) throw new Error(error.message);
+  await sbAppendAudit(sbAdmin, ownerId, 'recurrence', recId, 'delete', undefined, {
+    description: String(row.description),
+    removedOccurrences: removed,
+  });
+  return { status: 200, payload: { ok: true, removedOccurrences: removed } };
+}
+
+// ---------------------------------------------------------------------------
+// Categorias e regras
+// ---------------------------------------------------------------------------
+
+export async function sbUpdateCategory(
+  sbUser: SupabaseClient,
+  sbAdmin: SupabaseClient | null,
+  ownerId: string,
+  catId: string,
+  body: Record<string, any>
+): Promise<AdapterResult> {
+  const { data: row } = await sbUser.from('categories').select('*').eq('id', catId).eq('owner_id', ownerId).maybeSingle();
+  if (!row) return notFound('Categoria não encontrada.');
+  const patch: Record<string, unknown> = {};
+  if (typeof body.name === 'string') {
+    const n = body.name.trim();
+    if (!n) return invalid('Informe o nome da categoria.');
+    patch.name = n;
+  }
+  if (['essential', 'discretionary', 'unassigned'].includes(body.essentiality)) patch.essentiality = body.essentiality;
+  if (typeof body.isArchived === 'boolean') patch.is_archived = body.isArchived;
+  if (Object.keys(patch).length === 0) return invalid('Nada para alterar.');
+  const { data, error } = await sbUser.from('categories').update(patch).eq('id', catId).eq('owner_id', ownerId).select('*').single();
+  if (error) throw new Error(error.message);
+  await sbAppendAudit(sbAdmin, ownerId, 'category', catId, 'update');
+  return { status: 200, payload: { category: mapCategory(data) } };
+}
+
+/**
+ * Exclui uma categoria. Com moveToCategoryId, os lançamentos, contas agendadas e recorrências
+ * passam para a outra categoria; sem ele, ficam "Sem categoria". Limites e regras da categoria são removidos.
+ */
+export async function sbDeleteCategory(
+  sbUser: SupabaseClient,
+  sbAdmin: SupabaseClient | null,
+  ownerId: string,
+  catId: string,
+  moveToCategoryId?: string
+): Promise<AdapterResult> {
+  const { data: row } = await sbUser.from('categories').select('id, name').eq('id', catId).eq('owner_id', ownerId).maybeSingle();
+  if (!row) return notFound('Categoria não encontrada.');
+  if (moveToCategoryId) {
+    if (moveToCategoryId === catId) return invalid('Escolha uma categoria diferente para mover os lançamentos.');
+    const { data: target } = await sbUser.from('categories').select('id').eq('id', moveToCategoryId).eq('owner_id', ownerId).maybeSingle();
+    if (!target) return notFound('Categoria de destino não encontrada.');
+    for (const table of ['financial_events', 'obligations', 'recurrences', 'allocations']) {
+      const { error } = await sbUser.from(table).update({ category_id: moveToCategoryId }).eq('owner_id', ownerId).eq('category_id', catId);
+      if (error && table !== 'allocations') throw new Error(error.message);
+    }
+  } else {
+    // Lançamentos que ficarão sem categoria voltam para revisão
+    const { data: evs } = await sbUser.from('financial_events').select('id').eq('owner_id', ownerId).eq('category_id', catId);
+    const evIds = (evs || []).map((e: any) => e.id as string);
+    for (let i = 0; i < evIds.length; i += 200) {
+      await sbUser
+        .from('account_movements')
+        .update({ review_status: 'pending_category' })
+        .eq('owner_id', ownerId)
+        .in('event_id', evIds.slice(i, i + 200));
+    }
+  }
+  await sbUser.from('categories').update({ parent_id: null }).eq('owner_id', ownerId).eq('parent_id', catId);
+  const { error } = await sbUser.from('categories').delete().eq('id', catId).eq('owner_id', ownerId);
+  if (error) throw new Error(error.message);
+  await sbAppendAudit(sbAdmin, ownerId, 'category', catId, 'delete', undefined, {
+    name: String(row.name),
+    movedTo: moveToCategoryId || '',
+  });
+  return { status: 200, payload: { ok: true } };
+}
+
+export async function sbUpdateCategoryRule(
+  sbUser: SupabaseClient,
+  ownerId: string,
+  ruleId: string,
+  body: Record<string, any>
+): Promise<AdapterResult> {
+  const patch: Record<string, unknown> = {};
+  if (typeof body.isActive === 'boolean') patch.is_active = body.isActive;
+  if (typeof body.matchText === 'string') {
+    const t = body.matchText.trim();
+    if (!t) return invalid('Informe as palavras da regra.');
+    patch.match_text = t;
+  }
+  if (typeof body.targetCategoryId === 'string' && body.targetCategoryId) patch.target_category_id = body.targetCategoryId;
+  if (Number.isInteger(body.priority)) patch.priority = body.priority;
+  if (Object.keys(patch).length === 0) return invalid('Nada para alterar.');
+  const { data, error } = await sbUser.from('category_rules').update(patch).eq('id', ruleId).eq('owner_id', ownerId).select('id').maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data) return notFound('Regra não encontrada.');
+  return { status: 200, payload: { ok: true } };
+}
+
+export async function sbDeleteCategoryRule(sbUser: SupabaseClient, ownerId: string, ruleId: string): Promise<boolean> {
+  const { data } = await sbUser.from('category_rules').delete().eq('id', ruleId).eq('owner_id', ownerId).select('id');
+  return (data || []).length > 0;
+}
+
+// ---------------------------------------------------------------------------
+// Desfazer exclusão de lançamentos
+// ---------------------------------------------------------------------------
+
+export async function sbRestoreMovements(
+  sbUser: SupabaseClient,
+  sbAdmin: SupabaseClient | null,
+  ownerId: string,
+  movIds: string[]
+): Promise<{ restored: number }> {
+  const unique = Array.from(new Set(movIds)).slice(0, 1000);
+  let restored = 0;
+  for (let i = 0; i < unique.length; i += 200) {
+    const chunk = unique.slice(i, i + 200);
+    const { data: rows } = await sbUser
+      .from('account_movements')
+      .select('id, event_id, version')
+      .eq('owner_id', ownerId)
+      .eq('is_deleted', true)
+      .in('id', chunk);
+    for (const m of rows || []) {
+      await sbUser
+        .from('account_movements')
+        .update({ is_deleted: false, version: Number(m.version) + 1, updated_at: new Date().toISOString() })
+        .eq('id', m.id)
+        .eq('owner_id', ownerId);
+      if (m.event_id) {
+        await sbUser
+          .from('financial_events')
+          .update({ is_deleted: false, deleted_reason: null, updated_at: new Date().toISOString() })
+          .eq('id', m.event_id)
+          .eq('owner_id', ownerId);
+      }
+      await sbAppendAudit(sbAdmin, ownerId, 'movement', m.id, 'restore');
+      restored += 1;
+    }
+  }
+  return { restored };
 }

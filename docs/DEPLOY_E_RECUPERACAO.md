@@ -10,6 +10,8 @@
 1. Crie um projeto no Supabase (região recomendada próxima ao Brasil, ex.: `sa-east-1`).
 2. Em **Authentication → Providers**, mantenha **Email** habilitado e desative cadastro público aberto (*Disable signups*) após provisionar sua conta pessoal.
 3. Em **Authentication → URL Configuration**, cadastre sua URL HTTPS de produção e callbacks (`/auth/callback`).
+   - Inclua também `https://seu-dominio.com/redefinir-senha` em **Redirect URLs** (usado pelo link de "Esqueci minha senha").
+   - Em **Authentication → Email Templates → Reset Password**, deixe o texto em português.
 4. Aplique a migração SQL:
    ```bash
    supabase db push --file supabase/migrations/0001_initial_schema.sql
@@ -22,6 +24,7 @@
    - `SUPABASE_URL=...`
    - `SUPABASE_SERVICE_ROLE_KEY=...`
    - `SUPABASE_STORAGE_BUCKET=clareza-extratos`
+   - `COOKIE_SECURE` (opcional): os cookies de sessão já recebem `Secure` automaticamente em HTTPS (inclusive atrás de proxy com `X-Forwarded-Proto`). Use `true`/`false` só para forçar.
 
 ## 3. Publicação HTTPS e Worker
 - Build de produção: `npm run build`

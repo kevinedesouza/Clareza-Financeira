@@ -69,6 +69,15 @@ import {
   sbUpdateGoal,
   sbDeleteGoal,
   sbDeleteBudget,
+  sbUpdateObligation,
+  sbDeleteObligation,
+  sbUpdateRecurrence,
+  sbDeleteRecurrence,
+  sbUpdateCategory,
+  sbDeleteCategory,
+  sbUpdateCategoryRule,
+  sbDeleteCategoryRule,
+  sbRestoreMovements,
 } from './src/lib/supabase/serverAdapter';
 
 dotenv.config();
@@ -95,8 +104,18 @@ function parseCookies(cookieHeader?: string): Record<string, string> {
   return result;
 }
 
+/** Em HTTPS (direto ou atrás de proxy), os cookies de sessão recebem a flag Secure. */
+function isHttpsRequest(req?: Request): boolean {
+  if (process.env.COOKIE_SECURE === 'true') return true;
+  if (process.env.COOKIE_SECURE === 'false') return false;
+  if (!req) return false;
+  const fwd = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase();
+  return req.secure || fwd === 'https';
+}
+
 function setCookieHeader(res: Response, cookies: string[]) {
-  res.setHeader('Set-Cookie', cookies);
+  const secure = isHttpsRequest(res.req as Request | undefined);
+  res.setHeader('Set-Cookie', secure ? cookies.map((c) => `${c}; Secure`) : cookies);
 }
 
 function buildCookie(name: string, value: string, maxAgeSec: number): string {
@@ -260,7 +279,14 @@ async function requirePasswordConfirmation(req: AuthedRequest, res: Response): P
 
 async function startServer() {
   const app = express();
+  app.set('trust proxy', 1);
   app.use(express.json({ limit: '25mb' }));
+  app.use((_req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    res.setHeader('X-Frame-Options', 'DENY');
+    next();
+  });
 
   app.use('/api', (_req, res, next) => {
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
@@ -369,6 +395,69 @@ async function startServer() {
       ]);
 
       res.json({ authenticated: true, profile: ws.profile });
+    })
+  );
+
+  // Recuperação de senha: envia o link por e-mail. Sempre responde igual para não revelar se o e-mail existe.
+  app.post(
+    '/api/auth/forgot-password',
+    asyncRoute(async (req, res) => {
+      const email = String(req.body?.email || '').trim().toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        res.status(400).json({ code: 'INVALID_EMAIL', message: 'Informe um e-mail válido.' });
+        return;
+      }
+      const sbAnon = createSupabaseAnonClient();
+      if (!sbAnon) {
+        res.status(503).json({ code: 'SUPABASE_NOT_CONFIGURED', message: SUPABASE_NOT_CONFIGURED_MSG });
+        return;
+      }
+      const base = (process.env.APP_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
+      const { error } = await sbAnon.auth.resetPasswordForEmail(email, { redirectTo: `${base}/redefinir-senha` });
+      if (error && (error.status === 0 || (typeof error.status === 'number' && error.status >= 500))) {
+        res.status(503).json({ code: 'SUPABASE_UNREACHABLE', message: 'Não foi possível enviar o e-mail agora. Tente novamente em instantes.' });
+        return;
+      }
+      res.json({ ok: true, message: 'Se este e-mail tiver conta, você vai receber um link para criar uma nova senha.' });
+    })
+  );
+
+  // Define a nova senha a partir do link de recuperação (tokens vindos do e-mail) e já entra na conta.
+  app.post(
+    '/api/auth/reset-password',
+    asyncRoute(async (req, res) => {
+      const accessToken = String(req.body?.accessToken || '');
+      const refreshToken = String(req.body?.refreshToken || '');
+      const password = String(req.body?.password || '');
+      if (password.length < 8) {
+        res.status(400).json({ code: 'WEAK_PASSWORD', message: 'A nova senha precisa ter pelo menos 8 caracteres.' });
+        return;
+      }
+      const sbAnon = createSupabaseAnonClient();
+      if (!sbAnon) {
+        res.status(503).json({ code: 'SUPABASE_NOT_CONFIGURED', message: SUPABASE_NOT_CONFIGURED_MSG });
+        return;
+      }
+      const { data: sess, error: sessErr } = await sbAnon.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
+      if (sessErr || !sess.session) {
+        res.status(401).json({ code: 'RESET_LINK_INVALID', message: 'O link expirou ou já foi usado. Peça um novo link de recuperação.' });
+        return;
+      }
+      const { error: updErr } = await sbAnon.auth.updateUser({ password });
+      if (updErr) {
+        res.status(400).json({
+          code: 'RESET_FAILED',
+          message: updErr.message?.toLowerCase().includes('different')
+            ? 'A nova senha precisa ser diferente da anterior.'
+            : 'Não foi possível salvar a nova senha. Tente uma senha mais forte.',
+        });
+        return;
+      }
+      setCookieHeader(res, [
+        buildCookie('clareza_sb_access', sess.session.access_token, 60 * 60 * 24 * 7),
+        buildCookie('clareza_sb_refresh', sess.session.refresh_token, 60 * 60 * 24 * 30),
+      ]);
+      res.json({ ok: true });
     })
   );
 
@@ -506,6 +595,21 @@ async function startServer() {
         return;
       }
       res.json(out.payload);
+    })
+  );
+
+  // Desfazer exclusão (aviso "Desfazer" logo após excluir)
+  app.post(
+    '/api/movements/restore',
+    requireAuth,
+    asyncRoute(async (req: AuthedRequest, res) => {
+      const ids = req.body?.ids;
+      if (!Array.isArray(ids) || ids.length === 0 || ids.length > 1000 || !ids.every((x) => typeof x === 'string')) {
+        res.status(400).json({ code: 'INVALID_IDS', message: 'Informe de 1 a 1000 lançamentos para restaurar.' });
+        return;
+      }
+      const out = await sbRestoreMovements(req.sbUser!, req.sbAdmin || null, req.userId!, ids);
+      res.json({ ok: true, ...out });
     })
   );
 
@@ -747,6 +851,7 @@ async function startServer() {
     '/api/imports/:id/undo',
     requireAuth,
     asyncRoute(async (req: AuthedRequest, res) => {
+      if (!(await requirePasswordConfirmation(req, res))) return;
       const out = await sbUndoImportBatch(req.sbUser!, req.sbAdmin || null, req.userId!, req.params.id);
       res.status(out.status).json(out.payload);
     })
@@ -757,6 +862,7 @@ async function startServer() {
     '/api/imports/:id',
     requireAuth,
     asyncRoute(async (req: AuthedRequest, res) => {
+      if (!(await requirePasswordConfirmation(req, res))) return;
       const out = await sbDeleteImportBatch(req.sbUser!, req.sbAdmin || null, req.userId!, req.params.id);
       res.status(out.status).json(out.payload);
     })
@@ -814,6 +920,88 @@ async function startServer() {
         await sbRecordIdempotency(req.sbUser!, req.userId!, opKey, `/api/obligations/${req.params.id}/settlements`, out.payload);
       }
       res.status(out.status).json(out.payload);
+    })
+  );
+
+  // Agenda: editar, cancelar e excluir
+  app.patch(
+    '/api/obligations/:id',
+    requireAuth,
+    asyncRoute(async (req: AuthedRequest, res) => {
+      const out = await sbUpdateObligation(req.sbUser!, req.sbAdmin || null, req.userId!, req.params.id, req.body || {});
+      res.status(out.status).json(out.payload);
+    })
+  );
+
+  app.delete(
+    '/api/obligations/:id',
+    requireAuth,
+    asyncRoute(async (req: AuthedRequest, res) => {
+      if (!(await requirePasswordConfirmation(req, res))) return;
+      const out = await sbDeleteObligation(req.sbUser!, req.sbAdmin || null, req.userId!, req.params.id);
+      res.status(out.status).json(out.payload);
+    })
+  );
+
+  app.patch(
+    '/api/recurrences/:id',
+    requireAuth,
+    asyncRoute(async (req: AuthedRequest, res) => {
+      const out = await sbUpdateRecurrence(req.sbUser!, req.sbAdmin || null, req.userId!, req.params.id, req.body || {});
+      res.status(out.status).json(out.payload);
+    })
+  );
+
+  app.delete(
+    '/api/recurrences/:id',
+    requireAuth,
+    asyncRoute(async (req: AuthedRequest, res) => {
+      if (!(await requirePasswordConfirmation(req, res))) return;
+      const out = await sbDeleteRecurrence(req.sbUser!, req.sbAdmin || null, req.userId!, req.params.id);
+      res.status(out.status).json(out.payload);
+    })
+  );
+
+  // Categorias e regras: editar, arquivar e excluir
+  app.patch(
+    '/api/categories/:id',
+    requireAuth,
+    asyncRoute(async (req: AuthedRequest, res) => {
+      const out = await sbUpdateCategory(req.sbUser!, req.sbAdmin || null, req.userId!, req.params.id, req.body || {});
+      res.status(out.status).json(out.payload);
+    })
+  );
+
+  app.delete(
+    '/api/categories/:id',
+    requireAuth,
+    asyncRoute(async (req: AuthedRequest, res) => {
+      if (!(await requirePasswordConfirmation(req, res))) return;
+      const moveTo = typeof req.body?.moveToCategoryId === 'string' ? req.body.moveToCategoryId : undefined;
+      const out = await sbDeleteCategory(req.sbUser!, req.sbAdmin || null, req.userId!, req.params.id, moveTo || undefined);
+      res.status(out.status).json(out.payload);
+    })
+  );
+
+  app.patch(
+    '/api/category-rules/:id',
+    requireAuth,
+    asyncRoute(async (req: AuthedRequest, res) => {
+      const out = await sbUpdateCategoryRule(req.sbUser!, req.userId!, req.params.id, req.body || {});
+      res.status(out.status).json(out.payload);
+    })
+  );
+
+  app.delete(
+    '/api/category-rules/:id',
+    requireAuth,
+    asyncRoute(async (req: AuthedRequest, res) => {
+      const ok = await sbDeleteCategoryRule(req.sbUser!, req.userId!, req.params.id);
+      if (!ok) {
+        res.status(404).json({ code: 'NOT_FOUND', message: 'Regra não encontrada.' });
+        return;
+      }
+      res.json({ ok: true });
     })
   );
 

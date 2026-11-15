@@ -3,7 +3,9 @@ import { InsightItem, SupabaseDiagnostics, ThemeMode, TransferNature, WorkspaceD
 import { daysInMonth, todayCivilSaoPaulo } from './lib/domain/money';
 import { apiRequest, ApiError } from './lib/api/client';
 import { AppShell, NavTab } from './components/layout/AppShell';
-import { AuthScreen } from './components/screens/AuthScreen';
+import { AuthScreen, readRecoveryLink } from './components/screens/AuthScreen';
+import { LockScreen } from './components/screens/LockScreen';
+import { disableLock, markActive, readLockConfig, shouldLockNow } from './lib/security/appLock';
 import { DashboardView } from './components/screens/DashboardView';
 import { TransactionsView } from './components/screens/TransactionsView';
 import { AccountsView } from './components/screens/AccountsView';
@@ -40,6 +42,10 @@ export default function App() {
   const [insights, setInsights] = useState<InsightItem[]>([]);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<string>(new Date().toISOString());
   const [globalError, setGlobalError] = useState<string | null>(null);
+  // Link de recuperação de senha aberto: mostra a tela de nova senha mesmo com sessão ativa
+  const [recoveryMode, setRecoveryMode] = useState(() => readRecoveryLink() !== null);
+  // Bloqueio por PIN: ao abrir o app, bloqueia se o tempo de inatividade já passou
+  const [locked, setLocked] = useState(() => shouldLockNow());
 
   const [activeTab, setActiveTab] = useState<NavTab>(() => {
     try {
@@ -164,6 +170,36 @@ export default function App() {
     };
   }, [authenticated, loadWorkspace]);
 
+  // Bloqueio por inatividade (quando o PIN estiver ativado neste aparelho)
+  useEffect(() => {
+    if (!authenticated) return;
+    let lastWrite = 0;
+    const onActivity = () => {
+      if (locked) return;
+      const now = Date.now();
+      if (now - lastWrite > 5000) {
+        lastWrite = now;
+        markActive();
+      }
+    };
+    const check = () => {
+      if (!locked && readLockConfig() && shouldLockNow()) setLocked(true);
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') check();
+      else if (!locked) markActive();
+    };
+    const events = ['pointerdown', 'keydown', 'scroll', 'touchstart'] as const;
+    events.forEach((ev) => window.addEventListener(ev, onActivity, { passive: true }));
+    document.addEventListener('visibilitychange', onVisibility);
+    const timer = window.setInterval(check, 15_000);
+    return () => {
+      events.forEach((ev) => window.removeEventListener(ev, onActivity));
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.clearInterval(timer);
+    };
+  }, [authenticated, locked]);
+
   const handleLogout = async () => {
     try {
       await apiRequest('/api/auth/logout', { method: 'POST' });
@@ -219,12 +255,30 @@ export default function App() {
     );
   }
 
-  if (!authenticated || !workspace) {
+  if (!authenticated || !workspace || recoveryMode) {
     return (
       <AuthScreen
         onAuthenticated={async () => {
+          setRecoveryMode(false);
           setAuthenticated(true);
+          setLocked(false);
+          markActive();
           await loadWorkspace();
+        }}
+      />
+    );
+  }
+
+  if (locked && readLockConfig()) {
+    return (
+      <LockScreen
+        displayName={workspace.profile.displayName}
+        onUnlock={() => setLocked(false)}
+        onLogout={() => {
+          // Esqueceu o PIN: remove o bloqueio deste aparelho e pede a senha de novo
+          disableLock();
+          setLocked(false);
+          handleLogout();
         }}
       />
     );
@@ -273,7 +327,7 @@ export default function App() {
                 onChange={(e) => setSelectedAccountIds(e.target.value ? [e.target.value] : [])}
                 className="focus-ring min-h-[38px] rounded-lg border border-[var(--color-control-border)] bg-[var(--color-surface)] px-2.5 text-xs text-[var(--color-text)]"
               >
-                <option value="">Todas as contas de liquidez</option>
+                <option value="">Todas as contas</option>
                 {workspace.accounts
                   .filter((a) => !a.isArchived && a.type !== 'credit_card')
                   .map((a) => (
@@ -284,9 +338,6 @@ export default function App() {
               </select>
             )}
           </div>
-          <span className="hidden md:inline text-xs text-[var(--color-text-secondary)]">
-            Moeda: BRL · Fuso: America/Sao_Paulo
-          </span>
         </div>
       )}
 

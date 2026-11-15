@@ -4,14 +4,14 @@ Data: 15/11/2026
 
 ## 1. Resumo executivo
 
-**Veredito: pronto com ressalvas. Nota de prontidão: 7/10.**
+**Veredito: pronto para uso, com o teste final no Supabase real pendente. Nota de prontidão: 8,5/10.**
 
-A base é sólida: cálculos financeiros com testes, isolamento por usuário (RLS), modo privacidade, PWA e a maior parte das telas usável no celular. Esta rodada corrigiu os problemas de layout encontrados e a falta de confirmação nas exclusões. O que ainda falta é poder **corrigir e apagar** o que foi cadastrado em várias telas. Hoje o usuário consegue criar contas, cartões, categorias, regras, contas a pagar e recorrências, mas não consegue apagar ou desativar nenhum deles.
+Duas rodadas de correção. Na primeira: responsividade, exclusão com senha, metas e orçamentos editáveis. Na segunda: tudo o que estava listado como bloqueador, alto e a maior parte do médio. Hoje o usuário consegue criar, corrigir, cancelar, arquivar e excluir tudo o que cadastra. Também recupera a senha sozinho, protege o app com PIN e conta com "Desfazer" depois das ações principais.
 
-**Os 3 maiores riscos que continuam:**
-1. Contas a pagar/receber e recorrências não podem ser editadas, canceladas ou excluídas (Agenda).
-2. Categorias e regras de categorização não podem ser renomeadas, arquivadas ou excluídas (Configurações).
-3. Não existe "Esqueci minha senha" na tela de login. Um usuário que esquece a senha perde o acesso.
+**O que ainda falta antes de liberar:**
+1. Testar contra o Supabase real (senha nas exclusões, recuperação de senha por e-mail, edição na agenda). Neste ambiente só deu para testar com servidor simulado.
+2. Cadastrar `https://seu-dominio/redefinir-senha` nas Redirect URLs do Supabase (passo descrito em `docs/DEPLOY_E_RECUPERACAO.md`).
+3. Itens restantes de backlog: M5, M7 e L1–L4.
 
 ## 2. Visão geral do sistema
 
@@ -55,7 +55,24 @@ A base é sólida: cálculos financeiros com testes, isolamento por usuário (RL
 | C18 | Botões de paginação com 32px, pequenos para o dedo | `Pagination.tsx` | 40px no celular |
 | C19 | Botões duplicados no topo do tablet (o "Adicionar" da barra inferior já existe) | `AppShell.tsx` | Atalhos do topo só a partir de 1024px |
 
-### 🔴 Bloqueador
+### ✅ Corrigido na segunda rodada
+
+| # | Item | O que foi feito |
+|---|---|---|
+| B1 | Agenda sem editar/cancelar/excluir | Editar valor, data, conta e categoria. "Cancelar" (ou "cancelar saldo restante" quando já houve pagamento), com Desfazer, e "Reabrir". Excluir com senha quando não há pagamento. Nova seção **Recorrências** com editar (vale para as próximas em aberto), pausar, retomar, data de término e excluir com senha. A paginação da agenda não funcionava e foi corrigida. Endpoints: `PATCH/DELETE /api/obligations/:id`, `PATCH/DELETE /api/recurrences/:id` |
+| B2 | Sem recuperação de senha | "Esqueci minha senha" envia o link por e-mail (a resposta não revela se o e-mail existe). A tela `/redefinir-senha` cria a nova senha e já entra na conta, e trata link expirado. "Mostrar senha" nos campos. No celular, o formulário aparece antes do texto de apresentação |
+| A1 | Categorias e regras só criáveis | Categoria: renomear, arquivar/reativar (com Desfazer) e excluir com senha, com opção de **mover os lançamentos para outra categoria**. Arquivadas somem dos seletores. Regra: ativar/desativar e excluir (com Desfazer) |
+| A2 | Contas e cartões sem arquivar | "Arquivar" na edição, lista "arquivadas" com Reativar e Desfazer. O cartão arquiva também a conta de fatura. As paginações de contas e cartões tinham o mesmo bug e foram corrigidas |
+| A3 | Lançamento sem corrigir valor/conta | Lançamentos manuais permitem trocar valor e conta. Importados e transferências mostram o motivo do bloqueio. Lançamento conciliado pede motivo. O servidor recusa a troca de sinal (despesa ↔ receita) |
+| A4 | Desfazer/excluir lote sem senha | Os dois pedem senha, no app e no servidor |
+| A5 | Sessão sem bloqueio | **PIN de 4–6 dígitos por aparelho** (hash PBKDF2 local), bloqueio após 1/5/15/30 min sem uso, saída da conta após 5 erros, "Esqueci o PIN" volta para a senha. Cookies de sessão com `Secure` em HTTPS e cabeçalhos `nosniff`, `X-Frame-Options` e `Referrer-Policy` |
+| M1 | Títulos repetidos | Removidos. Ficou uma frase explicativa simples |
+| M2 | Jargão técnico | "Caixa realizado" virou "Já na conta". "Por competência" virou "Pela data da compra" (com explicação ao passar o mouse). Abas de relatório renomeadas. "Moeda/Fuso" saiu da tela. Títulos de menu ficaram mais curtos |
+| M3 | Sem desfazer | Aviso com **Desfazer** por 8s após excluir lançamento (um ou vários), cancelar conta, pausar recorrência e arquivar. Novo `POST /api/movements/restore` |
+| M4 | Mensagens de sucesso inconsistentes | Aviso único (toast) em todas as telas alteradas |
+| M6 | Sem guia de primeiro uso | Cartão **Primeiros passos** no painel: 6 etapas que se marcam sozinhas, com atalho para cada tela. Pode ser fechado |
+
+### 🔴 Bloqueador (resolvido, ver acima)
 
 **B1. Agenda: contas a pagar/receber e recorrências não podem ser editadas, canceladas nem excluídas**
 - Eixo: Fluxos principais
@@ -71,7 +88,7 @@ A base é sólida: cálculos financeiros com testes, isolamento por usuário (RL
 - Sugestão: link "Esqueci minha senha" usando `supabase.auth.resetPasswordForEmail` e uma tela para definir a nova senha. Aproveitar para incluir "Mostrar senha" no campo.
 - Esforço: M
 
-### 🟠 Alto
+### 🟠 Alto (resolvido, ver acima)
 
 **A1. Categorias e regras não podem ser renomeadas, arquivadas ou excluídas**
 - Onde: `SettingsView.tsx`, `server.ts` (só POST)
@@ -103,7 +120,7 @@ A base é sólida: cálculos financeiros com testes, isolamento por usuário (RL
 - Sugestão: bloqueio por inatividade com PIN de 4–6 dígitos ou biometria (WebAuthn), além do modo privacidade.
 - Esforço: G
 
-### 🟡 Médio
+### 🟡 Médio (M1–M4 e M6 resolvidos; M5 e M7 continuam)
 
 - **M1. Título repetido:** o cabeçalho diz "Contas e conciliação" e logo abaixo há outro título igual (Contas, Cartões, Importações, Insights, Relatórios). Deixar um só, ou usar o de baixo como subtítulo explicativo. (P)
 - **M2. Jargão técnico na tela:** "competência", "caixa realizado", "liquidez", "Moeda: BRL · Fuso: America/Sao_Paulo", "Insights verificáveis", "Fórmula". Trocar por frases simples ("Quando a compra foi feita" / "Quando o dinheiro saiu") e mostrar o termo técnico em uma dica (tooltip). (M)
@@ -122,21 +139,22 @@ A base é sólida: cálculos financeiros com testes, isolamento por usuário (RL
 
 ## 5. Plano de ação
 
-**Antes da entrega:** B1, B2, A1, A2, A4 (os dois últimos são rápidos).
+**Antes da entrega:** testar no Supabase real com o checklist abaixo.
 
-**Primeira semana:** A3, A5, M1, M2, M3, M4.
+**Primeira semana:** M7 (histórico de reservas da meta).
 
-**Backlog:** M5, M6, M7, L1–L4.
+**Backlog:** M5 (atualização incremental em vez de recarregar tudo a cada 20s), L1–L4.
 
 ## 6. Checklist de go-live
 
 - [ ] Rodar `0001`–`0003` no Supabase de produção e o teste `supabase/tests/rls_isolation.test.sql`
 - [ ] Testar a exclusão com senha contra o Supabase real (senha certa, errada e bloqueio após 5 tentativas)
-- [ ] Recuperação de senha funcionando com e-mail real (B2)
-- [ ] Editar, cancelar e excluir itens da agenda (B1)
-- [ ] Arquivar conta, cartão e categoria (A1, A2)
+- [ ] Cadastrar `/redefinir-senha` nas Redirect URLs do Supabase e testar a recuperação de senha com e-mail real
+- [ ] Testar na agenda: editar, cancelar, reabrir, excluir; pausar/retomar/encerrar recorrência
+- [ ] Testar arquivar/reativar conta, cartão e categoria; excluir categoria movendo lançamentos
 - [ ] Testar em iPhone real (Safari, PWA instalado), Android real (Chrome) e tablet
-- [ ] Conferir HTTPS, domínio, cookies `Secure` em produção (`buildCookie` hoje não envia `Secure`)
+- [ ] Conferir HTTPS, domínio e que os cookies de sessão chegam com `Secure` (DevTools → Application → Cookies)
+- [ ] Ativar o PIN num celular real e conferir o bloqueio após o tempo escolhido
 - [ ] Backup automático do Supabase ativado e restauração testada (`docs/DEPLOY_E_RECUPERACAO.md`)
 - [ ] Remover dados de teste da base de produção
 - [ ] Guia rápido de uso para o usuário final

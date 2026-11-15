@@ -16,6 +16,8 @@ interface ConfirmDialogProps {
   error?: string | null;
   onConfirm: (password?: string) => void;
   onCancel: () => void;
+  /** Conteúdo extra entre a mensagem e o campo de senha (ex.: escolha de destino). */
+  children?: React.ReactNode;
 }
 
 /** Diálogo de confirmação do próprio sistema (substitui window.confirm do navegador). */
@@ -31,6 +33,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
   error = null,
   onConfirm,
   onCancel,
+  children,
 }) => {
   const titleId = useId();
   const [password, setPassword] = useState('');
@@ -88,6 +91,8 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
         <p id={`${titleId}-desc`} className="mt-2 text-sm text-[var(--color-text-secondary)]">
           {message}
         </p>
+
+        {children}
 
         {requirePassword && (
           <div className="mt-4">

@@ -78,11 +78,11 @@ const TAB_TITLES: Record<NavTab, string> = {
   transactions: 'Lançamentos',
   accounts: 'Contas e conciliação',
   cards: 'Cartões e faturas',
-  imports: 'Importações CSV / OFX',
+  imports: 'Importar extrato',
   agenda: 'Agenda financeira',
   planning: 'Orçamentos e metas',
-  insights: 'Insights verificáveis',
-  reports: 'Relatórios analíticos',
+  insights: 'Insights',
+  reports: 'Relatórios',
   settings: 'Configurações',
 };
 

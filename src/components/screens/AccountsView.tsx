@@ -5,7 +5,9 @@ import { formatBRL, formatCivilDateBR, parseMoneyToCents, todayCivilSaoPaulo } f
 import { apiRequest, createOperationKey } from '../../lib/api/client';
 import { Button, FinancialValue, StatusTag } from '../ui/Primitives';
 import { PaginationBar, usePagination } from '../ui/Pagination';
-import { ArrowLeftRight, CheckCircle2, Pencil, Plus, Scale, X } from 'lucide-react';
+import { Archive, ArchiveRestore, ArrowLeftRight, CheckCircle2, Pencil, Plus, Scale, X } from 'lucide-react';
+import { ConfirmDialog } from '../ui/ConfirmDialog';
+import { useToast } from '../ui/Toast';
 
 interface Props {
   workspace: WorkspaceData;
@@ -55,6 +57,36 @@ export const AccountsView: React.FC<Props> = ({ workspace, onRefresh, onOpenTran
 
   const privacy = workspace.profile.privacyMode;
   const accounts = workspace.accounts.filter((a) => !a.isArchived && a.type !== 'credit_card');
+  const archivedAccounts = workspace.accounts.filter((a) => a.isArchived && a.type !== 'credit_card');
+  const toast = useToast();
+  const [archiveTarget, setArchiveTarget] = useState<(typeof accounts)[number] | null>(null);
+  const [archiveBusy, setArchiveBusy] = useState(false);
+
+  const setArchived = async (acc: (typeof accounts)[number], isArchived: boolean) => {
+    setArchiveBusy(true);
+    try {
+      await apiRequest(`/api/accounts/${acc.id}`, { method: 'PATCH', body: { isArchived } });
+      await onRefresh();
+      setArchiveTarget(null);
+      setEditAccId(null);
+      toast({
+        message: isArchived ? `Conta "${acc.name}" arquivada.` : `Conta "${acc.name}" reativada.`,
+        ...(isArchived
+          ? {
+              actionLabel: 'Desfazer',
+              onAction: async () => {
+                await apiRequest(`/api/accounts/${acc.id}`, { method: 'PATCH', body: { isArchived: false } });
+                await onRefresh();
+              },
+            }
+          : {}),
+      });
+    } catch (err) {
+      toast({ message: err instanceof Error ? err.message : 'Não foi possível arquivar.', tone: 'error' });
+    } finally {
+      setArchiveBusy(false);
+    }
+  };
 
   const handleCreateAccount = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -177,9 +209,8 @@ export const AccountsView: React.FC<Props> = ({ workspace, onRefresh, onOpenTran
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold text-[var(--color-text)]">Contas e conciliação</h2>
-          <p className="text-xs text-[var(--color-text-secondary)]">
-            Abertura representa a posição imediatamente anterior aos movimentos da data inicial.
+          <p className="text-sm text-[var(--color-text-secondary)]">
+            O saldo de cada conta é calculado pelos seus lançamentos. Use "Conciliar" para conferir com o saldo que aparece no banco.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -203,7 +234,7 @@ export const AccountsView: React.FC<Props> = ({ workspace, onRefresh, onOpenTran
       ) : (
         <>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {accounts.map((acc) => {
+          {accPg.pageItems.map((acc) => {
             const summary = computeAccountBalance(acc, workspace.movements, workspace.reconciliations);
             return (
               <div
@@ -271,6 +302,41 @@ export const AccountsView: React.FC<Props> = ({ workspace, onRefresh, onOpenTran
         <PaginationBar page={accPg.page} totalPages={accPg.totalPages} totalItems={accPg.totalItems} pageSize={accPg.pageSize} setPage={accPg.setPage} label="contas" />
         </>
       )}
+
+      {archivedAccounts.length > 0 && (
+        <details className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
+          <summary className="cursor-pointer text-sm font-medium text-[var(--color-text)]">
+            Contas arquivadas ({archivedAccounts.length})
+          </summary>
+          <p className="mt-1 text-xs text-[var(--color-text-secondary)]">
+            Não aparecem nas listas nem no saldo total. O histórico de lançamentos continua guardado.
+          </p>
+          <ul className="mt-3 divide-y divide-[var(--color-border)]">
+            {archivedAccounts.map((acc) => (
+              <li key={acc.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
+                <span className="text-sm text-[var(--color-text-secondary)]">
+                  {acc.name}
+                  {acc.institution ? ` · ${acc.institution}` : ''}
+                </span>
+                <Button variant="secondary" onClick={() => setArchived(acc, false)} disabled={archiveBusy} className="text-xs">
+                  <ArchiveRestore className="h-4 w-4" aria-hidden="true" />
+                  Reativar
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+
+      <ConfirmDialog
+        open={!!archiveTarget}
+        title={`Arquivar a conta "${archiveTarget?.name ?? ''}"?`}
+        message="Use para contas encerradas. Ela some das listas, dos filtros e do saldo total, mas os lançamentos antigos continuam no histórico. Você pode reativar quando quiser."
+        confirmLabel="Arquivar conta"
+        loading={archiveBusy}
+        onConfirm={() => archiveTarget && setArchived(archiveTarget, true)}
+        onCancel={() => setArchiveTarget(null)}
+      />
 
       {/* Modal Nova Conta */}
       {showCreate && (
@@ -519,13 +585,26 @@ export const AccountsView: React.FC<Props> = ({ workspace, onRefresh, onOpenTran
                   {editError}
                 </div>
               )}
-              <div className="flex justify-end gap-2 pt-2 border-t border-[var(--color-border)]">
-                <Button variant="ghost" onClick={() => setEditAccId(null)}>
-                  Cancelar
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-[var(--color-border)]">
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    const acc = accounts.find((a) => a.id === editAccId);
+                    if (acc) setArchiveTarget(acc);
+                  }}
+                  className="text-[var(--color-text-secondary)]"
+                >
+                  <Archive className="h-4 w-4" aria-hidden="true" />
+                  Arquivar conta
                 </Button>
-                <Button type="submit" variant="primary" loading={editSaving}>
-                  Salvar alterações
-                </Button>
+                <div className="flex gap-2">
+                  <Button variant="ghost" onClick={() => setEditAccId(null)}>
+                    Cancelar
+                  </Button>
+                  <Button type="submit" variant="primary" loading={editSaving}>
+                    Salvar alterações
+                  </Button>
+                </div>
               </div>
             </form>
           </div>

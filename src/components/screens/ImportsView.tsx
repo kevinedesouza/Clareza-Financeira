@@ -5,6 +5,7 @@ import { apiRequest, createOperationKey } from '../../lib/api/client';
 import { Button, FinancialValue, StatusTag } from '../ui/Primitives';
 import { PaginationBar, usePagination } from '../ui/Pagination';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
+import { useToast } from '../ui/Toast';
 import { CheckCircle2, FileSpreadsheet, RotateCcw, Trash2, Upload } from 'lucide-react';
 
 interface Props {
@@ -40,6 +41,9 @@ export const ImportsView: React.FC<Props> = ({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const historyPg = usePagination(workspace.importBatches, undefined, 'imp-lotes');
   const [pendingDelete, setPendingDelete] = useState<{ id: string; fileName: string } | null>(null);
+  const toast = useToast();
+  const [pendingUndo, setPendingUndo] = useState<{ id: string; fileName: string; count: number } | null>(null);
+  const [dialogError, setDialogError] = useState<string | null>(null);
   const rowsPg = usePagination(activeBatch?.rows ?? [], undefined, `imp-linhas-${activeBatch?.id ?? ''}`);
 
   const privacy = workspace.profile.privacyMode;
@@ -158,31 +162,35 @@ export const ImportsView: React.FC<Props> = ({
     }
   };
 
-  const handleDeleteBatch = async () => {
+  const handleDeleteBatch = async (password?: string) => {
     if (!pendingDelete) return;
     const batchId = pendingDelete.id;
     setLoading(true);
-    setErrorMsg(null);
+    setDialogError(null);
     try {
-      await apiRequest(`/api/imports/${batchId}`, { method: 'DELETE' });
+      await apiRequest(`/api/imports/${batchId}`, { method: 'DELETE', body: { password } });
       if (activeBatch?.id === batchId) setActiveBatch(null);
       setPendingDelete(null);
       await onRefresh();
+      toast({ message: 'Lote removido do histórico.' });
     } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : 'Erro ao excluir lote.');
+      setDialogError(err instanceof Error ? err.message : 'Erro ao excluir lote.');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleUndoBatch = async (batchId: string) => {
+  const handleUndoBatch = async (password?: string) => {
+    if (!pendingUndo) return;
     setLoading(true);
-    setErrorMsg(null);
+    setDialogError(null);
     try {
-      await apiRequest(`/api/imports/${batchId}/undo`, { method: 'POST' });
+      await apiRequest(`/api/imports/${pendingUndo.id}/undo`, { method: 'POST', body: { password } });
+      setPendingUndo(null);
       await onRefresh();
+      toast({ message: 'Importação desfeita. Os lançamentos do lote foram removidos.' });
     } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : 'Erro ao desfazer lote.');
+      setDialogError(err instanceof Error ? err.message : 'Erro ao desfazer lote.');
     } finally {
       setLoading(false);
     }
@@ -314,7 +322,7 @@ export const ImportsView: React.FC<Props> = ({
                   {workspace.accounts.length === 0 ? (
                     <option value="">Nenhuma conta cadastrada</option>
                   ) : (
-                    workspace.accounts.map((a) => (
+                    workspace.accounts.filter((a) => !a.isArchived).map((a) => (
                       <option key={a.id} value={a.id}>
                         {a.name}
                       </option>
@@ -459,7 +467,7 @@ export const ImportsView: React.FC<Props> = ({
                         className="focus-ring min-h-[36px] rounded-md border border-[var(--color-control-border)] bg-[var(--color-surface)] px-2"
                       >
                         <option value="">Sem categoria</option>
-                        {workspace.categories.map((c) => (
+                        {workspace.categories.filter((c) => !c.isArchived || c.id === row.suggestedCategoryId).map((c) => (
                           <option key={c.id} value={c.id}>
                             {c.name}
                           </option>
@@ -589,13 +597,16 @@ export const ImportsView: React.FC<Props> = ({
                     tone={b.status === 'committed' ? 'income' : b.status === 'reverted' ? 'neutral' : 'warning'}
                   />
                   {b.status === 'committed' && (
-                    <Button variant="ghost" onClick={() => handleUndoBatch(b.id)} className="text-xs">
+                    <Button variant="ghost" onClick={() => {
+                        setDialogError(null);
+                        setPendingUndo({ id: b.id, fileName: b.fileName, count: b.rows.filter((r) => r.decision === 'import_new' || r.decision === 'is_distinct').length });
+                      }} className="text-xs">
                       <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
                       Desfazer lote
                     </Button>
                   )}
                   {b.status !== 'committed' && (
-                    <Button variant="ghost" onClick={() => setPendingDelete({ id: b.id, fileName: b.fileName })} className="text-xs text-[var(--color-expense)]">
+                    <Button variant="ghost" onClick={() => { setDialogError(null); setPendingDelete({ id: b.id, fileName: b.fileName }); }} className="text-xs text-[var(--color-expense)]">
                       <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
                       Excluir
                     </Button>
@@ -614,9 +625,27 @@ export const ImportsView: React.FC<Props> = ({
         message={pendingDelete ? `O lote "${pendingDelete.fileName}" será removido do histórico. Esta ação não pode ser desfeita.` : ''}
         confirmLabel="Excluir lote"
         destructive
+        requirePassword
+        error={dialogError}
         loading={loading}
         onConfirm={handleDeleteBatch}
         onCancel={() => setPendingDelete(null)}
+      />
+      <ConfirmDialog
+        open={pendingUndo !== null}
+        title="Desfazer esta importação?"
+        message={
+          pendingUndo
+            ? `Todos os lançamentos criados pelo arquivo "${pendingUndo.fileName}" serão removidos das listas e dos saldos. Use quando importou o arquivo errado.`
+            : ''
+        }
+        confirmLabel="Desfazer importação"
+        destructive
+        requirePassword
+        error={dialogError}
+        loading={loading}
+        onConfirm={handleUndoBatch}
+        onCancel={() => setPendingUndo(null)}
       />
     </div>
   );

@@ -5,7 +5,9 @@ import { formatCivilDateBR, parseMoneyToCents, splitInstallments, todayCivilSaoP
 import { apiRequest, createOperationKey } from '../../lib/api/client';
 import { Button, FinancialValue, StatusTag } from '../ui/Primitives';
 import { PaginationBar, usePagination } from '../ui/Pagination';
-import { CreditCard, Pencil, Plus, Receipt, X } from 'lucide-react';
+import { Archive, ArchiveRestore, CreditCard, Pencil, Plus, Receipt, X } from 'lucide-react';
+import { ConfirmDialog } from '../ui/ConfirmDialog';
+import { useToast } from '../ui/Toast';
 
 interface Props {
   workspace: WorkspaceData;
@@ -105,6 +107,33 @@ export const CardsView: React.FC<Props> = ({ workspace, onRefresh, onPayBill }) 
   const privacy = workspace.profile.privacyMode;
   const accountMap = new Map(workspace.accounts.map((a) => [a.id, a]));
   const cards = workspace.cards.filter((c) => !c.isArchived);
+  const archivedCards = workspace.cards.filter((c) => c.isArchived);
+  const toast = useToast();
+  const [archiveTarget, setArchiveTarget] = useState<(typeof cards)[number] | null>(null);
+  const [archiveBusy, setArchiveBusy] = useState(false);
+
+  /** Arquiva/reativa o cartão e a conta de fatura ligada a ele. */
+  const setCardArchived = async (card: (typeof cards)[number], isArchived: boolean) => {
+    setArchiveBusy(true);
+    const apply = async (value: boolean) => {
+      await apiRequest(`/api/cards/${card.id}`, { method: 'PATCH', body: { isArchived: value } });
+      await apiRequest(`/api/accounts/${card.accountId}`, { method: 'PATCH', body: { isArchived: value } });
+      await onRefresh();
+    };
+    try {
+      await apply(isArchived);
+      setArchiveTarget(null);
+      setEditCardId(null);
+      toast({
+        message: isArchived ? `Cartão "${card.name}" arquivado.` : `Cartão "${card.name}" reativado.`,
+        ...(isArchived ? { actionLabel: 'Desfazer', onAction: () => apply(false) } : {}),
+      });
+    } catch (err) {
+      toast({ message: err instanceof Error ? err.message : 'Não foi possível arquivar o cartão.', tone: 'error' });
+    } finally {
+      setArchiveBusy(false);
+    }
+  };
   const payableAccounts = workspace.accounts.filter((a) => !a.isArchived && a.type !== 'credit_card');
 
   const openEditCard = (card: (typeof cards)[number]) => {
@@ -222,9 +251,8 @@ export const CardsView: React.FC<Props> = ({ workspace, onRefresh, onPayBill }) 
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold text-[var(--color-text)]">Cartões e faturas</h2>
-          <p className="text-xs text-[var(--color-text-secondary)]">
-            Compras geram gasto na competência; pagamento de fatura liquida o passivo sem duplicar consumo.
+          <p className="text-sm text-[var(--color-text-secondary)]">
+            Compras no cartão contam como gasto no mês da compra. Pagar a fatura só tira o dinheiro da conta, sem contar o gasto duas vezes.
           </p>
         </div>
         <Button variant="primary" onClick={() => setShowCreateCard(true)}>
@@ -242,7 +270,7 @@ export const CardsView: React.FC<Props> = ({ workspace, onRefresh, onPayBill }) 
       ) : (
         <>
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          {cards.map((card) => {
+          {cardPg.pageItems.map((card) => {
             const acc = accountMap.get(card.accountId);
             if (!acc) return null;
             const summary = computeCardDebtSummary(
@@ -361,6 +389,36 @@ export const CardsView: React.FC<Props> = ({ workspace, onRefresh, onPayBill }) 
         <PaginationBar page={cardPg.page} totalPages={cardPg.totalPages} totalItems={cardPg.totalItems} pageSize={cardPg.pageSize} setPage={cardPg.setPage} label="cartões" />
         </>
       )}
+      {archivedCards.length > 0 && (
+        <details className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
+          <summary className="cursor-pointer text-sm font-medium text-[var(--color-text)]">
+            Cartões arquivados ({archivedCards.length})
+          </summary>
+          <ul className="mt-3 divide-y divide-[var(--color-border)]">
+            {archivedCards.map((card) => (
+              <li key={card.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
+                <span className="text-sm text-[var(--color-text-secondary)]">
+                  {card.name}
+                  {card.maskedLast4 ? ` · final ${card.maskedLast4}` : ''}
+                </span>
+                <Button variant="secondary" onClick={() => setCardArchived(card, false)} disabled={archiveBusy} className="text-xs">
+                  <ArchiveRestore className="h-4 w-4" aria-hidden="true" />
+                  Reativar
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+      <ConfirmDialog
+        open={!!archiveTarget}
+        title={`Arquivar o cartão "${archiveTarget?.name ?? ''}"?`}
+        message="Use para cartões cancelados. Ele some das listas e dos totais, mas as compras e faturas antigas continuam no histórico. Você pode reativar quando quiser."
+        confirmLabel="Arquivar cartão"
+        loading={archiveBusy}
+        onConfirm={() => archiveTarget && setCardArchived(archiveTarget, true)}
+        onCancel={() => setArchiveTarget(null)}
+      />
 
       {/* Modal Novo Cartão */}
       {editCardId && (
@@ -488,13 +546,26 @@ export const CardsView: React.FC<Props> = ({ workspace, onRefresh, onPayBill }) 
                   {editError}
                 </div>
               )}
-              <div className="flex justify-end gap-2 pt-2 border-t border-[var(--color-border)]">
-                <Button variant="ghost" onClick={() => setEditCardId(null)}>
-                  Cancelar
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-[var(--color-border)]">
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    const card = cards.find((c) => c.id === editCardId);
+                    if (card) setArchiveTarget(card);
+                  }}
+                  className="text-[var(--color-text-secondary)]"
+                >
+                  <Archive className="h-4 w-4" aria-hidden="true" />
+                  Arquivar cartão
                 </Button>
-                <Button type="submit" variant="primary" loading={editSaving}>
-                  Salvar alterações
-                </Button>
+                <div className="flex gap-2">
+                  <Button variant="ghost" onClick={() => setEditCardId(null)}>
+                    Cancelar
+                  </Button>
+                  <Button type="submit" variant="primary" loading={editSaving}>
+                    Salvar alterações
+                  </Button>
+                </div>
               </div>
             </form>
           </div>

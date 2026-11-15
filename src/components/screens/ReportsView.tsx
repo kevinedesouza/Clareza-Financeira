@@ -58,8 +58,7 @@ export const ReportsView: React.FC<Props> = ({ workspace, periodStart, periodEnd
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold text-[var(--color-text)]">Relatórios analíticos</h2>
-          <p className="text-xs text-[var(--color-text-secondary)]">
+          <p className="text-sm text-[var(--color-text-secondary)]">
             Período: {formatCivilDateBR(periodStart)} a {formatCivilDateBR(periodEnd)} · Resultado de caixa não equivale a lucro contábil.
           </p>
         </div>
@@ -78,8 +77,8 @@ export const ReportsView: React.FC<Props> = ({ workspace, periodStart, periodEnd
       <div className="flex flex-wrap gap-1 rounded-lg bg-[var(--color-surface-muted)] p-1 w-fit">
         {(
           [
-            { id: 'cash', label: 'Caixa realizado' },
-            { id: 'competence', label: 'Competência por categoria' },
+            { id: 'cash', label: 'Entradas e saídas' },
+            { id: 'competence', label: 'Gastos por categoria' },
             { id: 'accounts', label: 'Posição por conta' },
             { id: 'projects', label: 'Projetos' },
           ] as const
@@ -101,7 +100,7 @@ export const ReportsView: React.FC<Props> = ({ workspace, periodStart, periodEnd
         <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6 space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="text-base font-semibold text-[var(--color-text)]">Resumo de Caixa Realizado</h3>
-            <StatusTag label="Base: Caixa realizado" tone="transfer" />
+            <StatusTag label="Pelo dinheiro que entrou e saiu" tone="transfer" />
           </div>
           <div className="divide-y divide-[var(--color-border)] text-sm">
             <div className="flex justify-between py-3">
@@ -121,7 +120,7 @@ export const ReportsView: React.FC<Props> = ({ workspace, periodStart, periodEnd
               <span>{metrics.savingsRatePct !== null ? `${metrics.savingsRatePct.toFixed(1)}%` : 'Sem base (receita zero)'}</span>
             </div>
             <div className="flex justify-between py-3 text-[var(--color-text-secondary)]">
-              <span>Variação total da liquidez no período</span>
+              <span>Quanto o saldo das contas mudou no período</span>
               <FinancialValue cents={metrics.liquidityDeltaCents} privacyMode={privacy} showSign />
             </div>
           </div>
@@ -132,7 +131,7 @@ export const ReportsView: React.FC<Props> = ({ workspace, periodStart, periodEnd
         <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] overflow-hidden">
           <div className="flex items-center justify-between border-b border-[var(--color-border)] px-6 py-4">
             <h3 className="text-base font-semibold text-[var(--color-text)]">Consumo por Categoria</h3>
-            <StatusTag label="Base: Por competência" tone="neutral" />
+            <span title="Conta o gasto no mês em que a compra foi feita, mesmo que o pagamento seja depois (ex.: cartão)."><StatusTag label="Pela data da compra" tone="neutral" /></span>
           </div>
           <table className="w-full text-left text-sm">
             <thead className="bg-[var(--color-surface-muted)] text-xs text-[var(--color-text-secondary)]">

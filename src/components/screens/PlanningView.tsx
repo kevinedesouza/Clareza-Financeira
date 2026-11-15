@@ -246,7 +246,7 @@ export const PlanningView: React.FC<Props> = ({ workspace, monthKey, todayDate, 
               Limite de gasto por categoria no mês. Você recebe alerta ao chegar em 80% e ao passar de 100%.
             </p>
           </div>
-          <StatusTag label="Por competência" tone="neutral" />
+          <span title="Conta o gasto no mês em que a compra foi feita, mesmo que o pagamento seja depois (ex.: cartão)."><StatusTag label="Pela data da compra" tone="neutral" /></span>
         </div>
 
         <form onSubmit={handleSaveBudget} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 items-end">

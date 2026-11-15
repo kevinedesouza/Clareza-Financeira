@@ -6,6 +6,8 @@ import { apiRequest } from '../../lib/api/client';
 import { Button, FinancialValue, StatusTag } from '../ui/Primitives';
 import { PaginationBar, usePagination } from '../ui/Pagination';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
+import { useToast } from '../ui/Toast';
+import { parseMoneyToCents } from '../../lib/domain/money';
 import { Download, Plus, Search, Trash2, X } from 'lucide-react';
 
 /** Nome da conta; cartões ganham o prefixo "Cartão" só quando o nome ainda não o tem. */
@@ -41,6 +43,9 @@ export const TransactionsView: React.FC<Props> = ({
   const [editCatId, setEditCatId] = useState('');
   const [editDate, setEditDate] = useState('');
   const [editReason, setEditReason] = useState('');
+  const [editAmountStr, setEditAmountStr] = useState('');
+  const [editAccountId, setEditAccountId] = useState('');
+  const toast = useToast();
   const [saving, setSaving] = useState(false);
   const [drawerError, setDrawerError] = useState<string | null>(null);
 
@@ -114,13 +119,31 @@ export const TransactionsView: React.FC<Props> = ({
     setEditCatId(ev?.categoryId || '');
     setEditDate(mov.effectiveDate);
     setEditReason('');
+    setEditAmountStr((Math.abs(mov.signedCents) / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+    setEditAccountId(mov.accountId);
     setDrawerError(null);
   };
+
+  /** Só lançamentos manuais (fora de transferências) podem ter valor e conta alterados. */
+  const canEditAmount = (m: AccountMovement) => m.origin === 'manual' && !m.transferGroupId;
+  const parsedEditCents = parseMoneyToCents(editAmountStr, ',');
+  const editedSignedCents =
+    selectedMov && parsedEditCents ? Math.sign(selectedMov.signedCents || -1) * Math.abs(parsedEditCents) : null;
+  const valueChanged = !!selectedMov && editedSignedCents !== null && editedSignedCents !== selectedMov.signedCents;
+  const accountChanged = !!selectedMov && editAccountId !== selectedMov.accountId;
+  const needsReason =
+    !!selectedMov &&
+    selectedMov.reconciliationStatus === 'reconciled' &&
+    (editDate !== selectedMov.effectiveDate || valueChanged || accountChanged);
 
   const handleSaveEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedMov) return;
     setDrawerError(null);
+    if (canEditAmount(selectedMov) && (!parsedEditCents || parsedEditCents <= 0)) {
+      setDrawerError('Informe um valor maior que zero.');
+      return;
+    }
     setSaving(true);
     try {
       await apiRequest(`/api/movements/${selectedMov.id}`, {
@@ -131,14 +154,27 @@ export const TransactionsView: React.FC<Props> = ({
           categoryId: editCatId || null,
           effectiveDate: editDate,
           reason: editReason || undefined,
+          ...(canEditAmount(selectedMov) && valueChanged ? { signedCents: editedSignedCents } : {}),
+          ...(canEditAmount(selectedMov) && accountChanged ? { accountId: editAccountId } : {}),
         },
       });
       await onRefresh();
       setSelectedMov(null);
+      toast({ message: 'Lançamento atualizado.' });
     } catch (err) {
       setDrawerError(err instanceof Error ? err.message : 'Erro ao atualizar lançamento.');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const restore = async (ids: string[]) => {
+    try {
+      const r = await apiRequest<{ restored: number }>('/api/movements/restore', { method: 'POST', body: { ids } });
+      await onRefresh();
+      toast({ message: `${r.restored} lançamento(s) restaurado(s).` });
+    } catch (err) {
+      toast({ message: err instanceof Error ? err.message : 'Não foi possível desfazer.', tone: 'error' });
     }
   };
 
@@ -153,9 +189,15 @@ export const TransactionsView: React.FC<Props> = ({
         method: 'DELETE',
         body: { reason: 'Excluído pelo usuário na tela de Lançamentos', password },
       });
+      const deletedId = selectedMov.id;
       await onRefresh();
       setDeleteConfirmOpen(false);
       setSelectedMov(null);
+      toast({
+        message: 'Lançamento excluído.',
+        actionLabel: 'Desfazer',
+        onAction: () => restore([deletedId]),
+      });
     } catch (err) {
       setDeleteError(err instanceof Error ? err.message : 'Falha ao excluir.');
     } finally {
@@ -180,8 +222,12 @@ export const TransactionsView: React.FC<Props> = ({
       }
       setBulkConfirmOpen(false);
       setSelectedIds(new Set());
-      setBulkMsg(`${deleted} lançamento(s) excluído(s).`);
       await onRefresh();
+      toast({
+        message: `${deleted} lançamento(s) excluído(s).`,
+        actionLabel: 'Desfazer',
+        onAction: () => restore(ids),
+      });
     } catch (err) {
       // Mantém o diálogo aberto para nova tentativa (ex.: senha incorreta)
       setBulkError(err instanceof Error ? err.message : 'Falha ao excluir os lançamentos.');
@@ -548,12 +594,56 @@ export const TransactionsView: React.FC<Props> = ({
             </div>
 
             <form onSubmit={handleSaveEdit} className="mt-4 space-y-4">
-              <div className="rounded-lg bg-[var(--color-surface-muted)] p-3 flex items-center justify-between">
-                <span className="text-xs text-[var(--color-text-secondary)]">Valor registrado</span>
-                <span className="text-lg font-bold text-[var(--color-text)]">
-                  <FinancialValue cents={selectedMov.signedCents} privacyMode={privacy} showSign />
-                </span>
-              </div>
+              {canEditAmount(selectedMov) ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label htmlFor="edit-amount" className="block text-xs font-medium text-[var(--color-text-secondary)] mb-1">
+                      Valor (R$) · {selectedMov.signedCents > 0 ? 'receita' : 'despesa'}
+                    </label>
+                    <input
+                      id="edit-amount"
+                      type="text"
+                      inputMode="decimal"
+                      value={editAmountStr}
+                      onChange={(e) => setEditAmountStr(e.target.value)}
+                      className="focus-ring financial-value w-full min-h-[44px] rounded-lg border border-[var(--color-control-border)] bg-[var(--color-surface)] px-3 text-sm font-semibold text-[var(--color-text)]"
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="edit-acc" className="block text-xs font-medium text-[var(--color-text-secondary)] mb-1">
+                      Conta
+                    </label>
+                    <select
+                      id="edit-acc"
+                      value={editAccountId}
+                      onChange={(e) => setEditAccountId(e.target.value)}
+                      className="focus-ring w-full min-h-[44px] rounded-lg border border-[var(--color-control-border)] bg-[var(--color-surface)] px-3 text-sm text-[var(--color-text)]"
+                    >
+                      {workspace.accounts
+                        .filter((a) => !a.isArchived || a.id === selectedMov.accountId)
+                        .map((a) => (
+                          <option key={a.id} value={a.id}>
+                            {a.name}
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-lg bg-[var(--color-surface-muted)] p-3 space-y-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs text-[var(--color-text-secondary)]">Valor · {accountLabel(accountMap.get(selectedMov.accountId))}</span>
+                    <span className="text-lg font-bold text-[var(--color-text)]">
+                      <FinancialValue cents={selectedMov.signedCents} privacyMode={privacy} showSign />
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-[var(--color-text-secondary)]">
+                    {selectedMov.transferGroupId
+                      ? 'Valor e conta de transferências não mudam aqui. Para corrigir, exclua e registre de novo.'
+                      : 'Veio do extrato do banco, por isso valor e conta não podem ser alterados.'}
+                  </p>
+                </div>
+              )}
 
               <div>
                 <label htmlFor="edit-desc" className="block text-xs font-medium text-[var(--color-text-secondary)] mb-1">
@@ -570,7 +660,7 @@ export const TransactionsView: React.FC<Props> = ({
 
               <div>
                 <label htmlFor="edit-date" className="block text-xs font-medium text-[var(--color-text-secondary)] mb-1">
-                  Data efetiva
+                  Data
                 </label>
                 <input
                   id="edit-date"
@@ -592,18 +682,20 @@ export const TransactionsView: React.FC<Props> = ({
                   className="focus-ring w-full min-h-[44px] rounded-lg border border-[var(--color-control-border)] bg-[var(--color-surface)] px-3 text-sm text-[var(--color-text)]"
                 >
                   <option value="">Sem categoria</option>
-                  {workspace.categories.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
+                  {workspace.categories
+                    .filter((c) => !c.isArchived || c.id === editCatId)
+                    .map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
                 </select>
               </div>
 
-              {selectedMov.reconciliationStatus === 'reconciled' && editDate !== selectedMov.effectiveDate && (
+              {needsReason && (
                 <div className="rounded-lg bg-[var(--color-warning-soft)] p-3 space-y-2">
                   <p className="text-xs font-medium text-[var(--color-warning)]">
-                    Este registro está conciliado. Alterar a data invalida a conferência da conta e exige motivo:
+                    Este lançamento já foi conferido com o extrato. Mudar data, valor ou conta desfaz essa conferência. Diga o motivo:
                   </p>
                   <input
                     type="text"

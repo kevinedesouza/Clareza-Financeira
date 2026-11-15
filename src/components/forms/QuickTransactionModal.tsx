@@ -376,7 +376,7 @@ export const QuickTransactionModal: React.FC<Props> = ({
               className="focus-ring inline-flex items-center gap-1.5 text-xs font-medium text-[var(--color-primary)] cursor-pointer"
             >
               {showAdvanced ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-              Opções avançadas (competência, projeto e observações)
+              Mais opções (mês em que o gasto conta, projeto e observações)
             </button>
 
             {showAdvanced && (
@@ -384,7 +384,7 @@ export const QuickTransactionModal: React.FC<Props> = ({
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div>
                     <label htmlFor="tx-comp" className="block text-xs font-medium text-[var(--color-text-secondary)] mb-1">
-                      Data de competência
+                      Mês em que o gasto conta
                     </label>
                     <input
                       id="tx-comp"

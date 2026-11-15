@@ -19,7 +19,7 @@ export const CategorySpendingChart: React.FC<Props> = ({ items, privacyMode, onS
   if (visible.length === 0) {
     return (
       <div className="flex h-52 items-center justify-center rounded-lg border border-dashed border-[var(--color-border)] text-sm text-[var(--color-text-secondary)]">
-        Nenhum gasto por competência registrado neste período.
+        Nenhum gasto registrado neste período.
       </div>
     );
   }
@@ -28,7 +28,7 @@ export const CategorySpendingChart: React.FC<Props> = ({ items, privacyMode, onS
     <div>
       <div className="mb-3 flex items-center justify-between gap-2">
         <span className="text-xs font-medium text-[var(--color-text-secondary)]">
-          Base: Por competência · líquidos de estorno
+          Pela data da compra, já descontando estornos
         </span>
         <button
           type="button"

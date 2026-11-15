@@ -1,4 +1,5 @@
 import React from 'react';
+import { OnboardingChecklist } from '../dashboard/OnboardingChecklist';
 import { InsightItem, WorkspaceData } from '../../lib/domain/types';
 import {
   computeDashboardMetrics,
@@ -46,12 +47,14 @@ export const DashboardView: React.FC<Props> = ({
   // Estado vazio inicial para conta real recém-criada
   if (workspace.accounts.length === 0) {
     return (
+      <div className="space-y-6">
+      <OnboardingChecklist workspace={workspace} onNavigate={onNavigate} />
       <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-8 text-center">
         <h2 className="text-xl font-semibold text-[var(--color-text)]">
           Comece cadastrando sua primeira conta ou importando um extrato
         </h2>
         <p className="mx-auto mt-2 max-w-lg text-sm text-[var(--color-text-secondary)]">
-          Sua base real inicia vazia e isolada. Informe o saldo inicial da sua conta corrente ou importe um arquivo CSV/OFX para acompanhar caixa, competência e projeções.
+          Para começar, cadastre sua conta bancária com o saldo de hoje ou importe o extrato do banco (arquivo CSV ou OFX).
         </p>
         <div className="mt-6 flex flex-wrap justify-center gap-3">
           <Button variant="primary" onClick={() => onNavigate('accounts')}>
@@ -63,6 +66,7 @@ export const DashboardView: React.FC<Props> = ({
             Importar extrato CSV/OFX
           </Button>
         </div>
+      </div>
       </div>
     );
   }
@@ -86,6 +90,7 @@ export const DashboardView: React.FC<Props> = ({
 
   return (
     <div className="space-y-6 md:space-y-8">
+      <OnboardingChecklist workspace={workspace} onNavigate={onNavigate} />
       {/* Primeira Linha: 4 KPIs prioritários */}
       <section aria-label="Indicadores principais de caixa" className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {/* Card de Saldo Disponível em destaque institucional azul profundo */}
@@ -139,7 +144,7 @@ export const DashboardView: React.FC<Props> = ({
         <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5 md:p-6">
           <div className="flex items-center justify-between gap-2">
             <span className="text-xs font-medium text-[var(--color-text-secondary)]">Receitas recebidas</span>
-            <span className="text-[11px] text-[var(--color-text-secondary)]">Caixa realizado</span>
+            <span className="text-[11px] text-[var(--color-text-secondary)]" title="Só o que já entrou ou saiu das contas.">Já na conta</span>
           </div>
           <div className="mt-2 text-2xl md:text-3xl font-bold tracking-tight text-[var(--color-income)]">
             <FinancialValue cents={metrics.incomeReceivedCents} privacyMode={privacy} showSign />
@@ -160,7 +165,7 @@ export const DashboardView: React.FC<Props> = ({
         <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5 md:p-6">
           <div className="flex items-center justify-between gap-2">
             <span className="text-xs font-medium text-[var(--color-text-secondary)]">Despesas pagas</span>
-            <span className="text-[11px] text-[var(--color-text-secondary)]">Caixa realizado</span>
+            <span className="text-[11px] text-[var(--color-text-secondary)]" title="Só o que já entrou ou saiu das contas.">Já na conta</span>
           </div>
           <div className="mt-2 text-2xl md:text-3xl font-bold tracking-tight text-[var(--color-text)]">
             <FinancialValue cents={-metrics.expensesPaidCents} privacyMode={privacy} />
@@ -227,7 +232,7 @@ export const DashboardView: React.FC<Props> = ({
         <div className="xl:col-span-5 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5 md:p-6">
           <div className="mb-4 flex items-baseline justify-between gap-2">
             <h2 className="text-base font-semibold text-[var(--color-text)]">Gastos por categoria</h2>
-            <StatusTag label="Por competência" tone="neutral" />
+            <span title="Conta o gasto no mês em que a compra foi feita, mesmo que o pagamento seja depois (ex.: cartão)."><StatusTag label="Pela data da compra" tone="neutral" /></span>
           </div>
           <CategorySpendingChart
             items={metrics.categorySpending}
