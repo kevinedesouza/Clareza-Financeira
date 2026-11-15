@@ -118,12 +118,59 @@ export const CardsView: React.FC<Props> = ({ workspace, onRefresh, onPayBill }) 
   const [recAmountStr, setRecAmountStr] = useState('');
   const [recBusy, setRecBusy] = useState(false);
   const [recError, setRecError] = useState<string | null>(null);
+  // Diferença pequena (arredondamento do banco): oferece lançar o ajuste e conciliar
+  const [recSmallDiff, setRecSmallDiff] = useState<{ diffCents: number; reportedCents: number } | null>(null);
+  const SMALL_DIFF_LIMIT_CENTS = 100;
 
   const openReconcile = (card: (typeof cards)[number]) => {
     setRecCard(card);
     setRecDate(todayCivilSaoPaulo());
     setRecAmountStr('');
     setRecError(null);
+    setRecSmallDiff(null);
+  };
+
+  /** Lança o ajuste de arredondamento no cartão e concilia de novo com o mesmo total do banco. */
+  const handleAdjustAndReconcile = async () => {
+    if (!recCard || !recSmallDiff) return;
+    setRecBusy(true);
+    setRecError(null);
+    try {
+      // differenceCents = banco - app. Negativo: o banco cobra mais (despesa). Positivo: cobra menos (estorno).
+      const bankChargesMore = recSmallDiff.diffCents < 0;
+      const feeCategory = workspace.categories.find(
+        (c) => !c.isArchived && c.kind === 'expense' && /tarifa|taxa|juros|iof|encargo/i.test(c.name)
+      );
+      await apiRequest('/api/events', {
+        method: 'POST',
+        idempotencyKey: createOperationKey(),
+        body: {
+          nature: bankChargesMore ? 'expense' : 'refund',
+          description: 'Ajuste de arredondamento do banco',
+          effectiveDate: recDate,
+          competenceDate: recDate,
+          magnitudeCents: Math.abs(recSmallDiff.diffCents),
+          accountId: recCard.accountId,
+          categoryId: bankChargesMore ? feeCategory?.id : undefined,
+        },
+      });
+      const r = await apiRequest<{ reconciliation: { status: string } }>('/api/reconciliations', {
+        method: 'POST',
+        body: { accountId: recCard.accountId, cutoffDate: recDate, reportedBalanceCents: recSmallDiff.reportedCents },
+      });
+      await onRefresh();
+      if (r.reconciliation.status === 'matched') {
+        toast({ message: `Ajuste de ${formatBRL(Math.abs(recSmallDiff.diffCents))} lançado e fatura conciliada.` });
+        setRecCard(null);
+      } else {
+        setRecError('O ajuste foi lançado, mas ainda há diferença. Confira os lançamentos do período.');
+      }
+      setRecSmallDiff(null);
+    } catch (err) {
+      setRecError(err instanceof Error ? err.message : 'Não foi possível lançar o ajuste.');
+    } finally {
+      setRecBusy(false);
+    }
   };
 
   const handleReconcile = async (e: React.FormEvent) => {
@@ -136,6 +183,7 @@ export const CardsView: React.FC<Props> = ({ workspace, onRefresh, onPayBill }) 
     }
     setRecBusy(true);
     setRecError(null);
+    setRecSmallDiff(null);
     try {
       // No cartão, o saldo é negativo quando há dívida
       const r = await apiRequest<{ reconciliation: { status: string; differenceCents: number; calculatedBalanceCents: number } }>(
@@ -152,6 +200,9 @@ export const CardsView: React.FC<Props> = ({ workspace, onRefresh, onPayBill }) 
         setRecError(
           `Não bateu: o app soma ${formatBRL(appDebt)} até ${formatCivilDateBR(recDate)} e o banco ${formatBRL(cents)} (diferença de ${formatBRL(diff)}). Confira se falta ou sobra algum lançamento, ou se a data é a mesma do banco.`
         );
+        if (diff > 0 && diff <= SMALL_DIFF_LIMIT_CENTS) {
+          setRecSmallDiff({ diffCents: r.reconciliation.differenceCents, reportedCents: -cents });
+        }
       }
     } catch (err) {
       setRecError(err instanceof Error ? err.message : 'Não foi possível conciliar.');
@@ -528,6 +579,17 @@ export const CardsView: React.FC<Props> = ({ workspace, onRefresh, onPayBill }) 
               <p role="alert" className="rounded-lg bg-[var(--color-warning-soft)] px-3 py-2 text-xs text-[var(--color-warning)]">
                 {recError}
               </p>
+            )}
+            {recSmallDiff && (
+              <div className="rounded-lg border border-[var(--color-border)] p-3 space-y-2">
+                <p className="text-xs text-[var(--color-text-secondary)]">
+                  Diferenças pequenas costumam ser arredondamento do banco (por exemplo, no IOF de compras internacionais).
+                  Você pode lançar um ajuste de {formatBRL(Math.abs(recSmallDiff.diffCents))} no cartão para a fatura bater.
+                </p>
+                <Button variant="secondary" onClick={handleAdjustAndReconcile} loading={recBusy} className="w-full sm:w-auto">
+                  Lançar ajuste de {formatBRL(Math.abs(recSmallDiff.diffCents))} e conciliar
+                </Button>
+              </div>
             )}
             <div className="flex flex-wrap justify-end gap-2 border-t border-[var(--color-border)] pt-3">
               <Button variant="ghost" onClick={() => setRecCard(null)} disabled={recBusy}>
