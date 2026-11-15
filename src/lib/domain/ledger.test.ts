@@ -275,3 +275,26 @@ test('nextCardDueDate: vencimento já passado no mês cai no mês seguinte; dia 
   assert.equal(nextCardDueDate(31, '2026-02-10'), '2026-02-28');
   assert.equal(nextCardDueDate(18, '2026-12-20'), '2027-01-18');
 });
+
+test('cobertura: divergência antiga já resolvida por conferência posterior não aparece como pendência', () => {
+  const ws = buildReferenceScenarioWorkspace(false);
+  const base = {
+    ownerId: 'ref-owner',
+    accountId: 'acc-a',
+    cutoffDate: '2026-11-14',
+    reportedBalanceCents: 61,
+    calculatedBalanceCents: 0,
+    differenceCents: 61,
+  };
+  ws.reconciliations = [
+    { ...base, id: 'rec-div', status: 'divergent', createdAt: '2026-11-14T18:52:00Z' } as any,
+    { ...base, id: 'rec-ok', status: 'matched', reportedBalanceCents: 0, calculatedBalanceCents: 0, differenceCents: 0, createdAt: '2026-11-14T19:06:00Z' } as any,
+  ];
+  const dm = computeDashboardMetrics(ws, { periodStart: '2026-11-01', periodEnd: '2026-11-30', todayDate: '2026-11-14' });
+  assert.equal(dm.coverage.divergentReconciliations, 0);
+
+  // Se a última conferência ainda diverge, conta como pendência (uma por conta)
+  ws.reconciliations.push({ ...base, id: 'rec-div2', status: 'divergent', createdAt: '2026-11-14T20:00:00Z' } as any);
+  const dm2 = computeDashboardMetrics(ws, { periodStart: '2026-11-01', periodEnd: '2026-11-30', todayDate: '2026-11-14' });
+  assert.equal(dm2.coverage.divergentReconciliations, 1);
+});

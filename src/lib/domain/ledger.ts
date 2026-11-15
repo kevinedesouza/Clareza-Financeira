@@ -591,7 +591,17 @@ export function computeDashboardMetrics(
   const pendingImportBatches = data.importBatches.filter(
     (b) => b.status === 'awaiting_review' || b.status === 'parsing'
   ).length;
-  const divergentReconciliations = data.reconciliations.filter((r) => r.status === 'divergent').length;
+  // Só conta divergência ATUAL: a última conferência válida de cada conta ainda divergente.
+  // Divergências antigas já resolvidas por uma conferência posterior não são pendência.
+  const latestByAccount = new Map<string, (typeof data.reconciliations)[number]>();
+  for (const r of data.reconciliations) {
+    if (r.status === 'invalidated') continue;
+    const prev = latestByAccount.get(r.accountId);
+    if (!prev || (r.createdAt || '') > (prev.createdAt || '')) latestByAccount.set(r.accountId, r);
+  }
+  const divergentReconciliations = Array.from(latestByAccount.values()).filter(
+    (r) => r.status === 'divergent'
+  ).length;
 
   return {
     periodStart,

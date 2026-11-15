@@ -147,11 +147,20 @@ export default function App() {
         loadWorkspace();
       }
     };
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') onFocusOrOnline();
+    };
     window.addEventListener('focus', onFocusOrOnline);
     window.addEventListener('online', onFocusOrOnline);
+    document.addEventListener('visibilitychange', onVisible);
+    // Atualização periódica enquanto a aba estiver visível: mudanças feitas em outra aba,
+    // outro aparelho ou pelo próprio app aparecem sem precisar recarregar a página.
+    const timer = window.setInterval(onVisible, 20_000);
     return () => {
       window.removeEventListener('focus', onFocusOrOnline);
       window.removeEventListener('online', onFocusOrOnline);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.clearInterval(timer);
     };
   }, [authenticated, loadWorkspace]);
 
