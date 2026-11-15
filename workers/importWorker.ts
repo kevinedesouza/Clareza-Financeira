@@ -8,6 +8,7 @@ import { parseCsvStatement } from '../src/lib/importers/csvParser';
 import { parseOfxStatement } from '../src/lib/importers/ofxParser';
 import { evaluateImportRows } from '../src/lib/importers/deduplicator';
 import { AccountMovement, CategoryRule, ExternalIdentity, ImportBatch, ImportRow } from '../src/lib/domain/types';
+import { isCardPayment } from '../src/lib/importers/cardStatement';
 
 export interface ProcessBatchInput {
   batchId: string;
@@ -19,12 +20,21 @@ export interface ProcessBatchInput {
   existingMovements: AccountMovement[];
   externalIdentities: ExternalIdentity[];
   rules: CategoryRule[];
+  /** Tipo da conta; para cartão de crédito, pagamentos de fatura não são importados como gasto. */
+  accountType?: string;
   csvOptions?: {
     positiveIsExpense?: boolean;
     delimiter?: ',' | ';' | '\t' | 'auto';
     dateFormat?: 'DD/MM/YYYY' | 'YYYY-MM-DD' | 'auto';
     decimalSeparator?: ',' | '.' | 'auto';
+    /** Lançamentos anteriores a esta data (YYYY-MM-DD) não são importados: início do controle. */
+    importFromDate?: string;
   };
+}
+
+function brDate(iso: string): string {
+  const [y, m, d] = iso.split('-');
+  return `${d}/${m}/${y}`;
 }
 
 export function processImportPayload(input: ProcessBatchInput): {
@@ -108,10 +118,40 @@ export function processImportPayload(input: ProcessBatchInput): {
     rules: input.rules,
   });
 
-  const validRows = evaluated.filter((r) => r.validationErrors.length === 0).length;
-  const rejectedRows = evaluated.filter((r) => r.validationErrors.length > 0).length;
-  const linkedRows = evaluated.filter((r) => r.decision === 'link_manual').length;
-  const ignoredRows = evaluated.filter((r) => r.decision === 'already_exists').length;
+  // Regras de período e de cartão: não criam lançamento, mas ficam visíveis na revisão com o motivo.
+  const importFrom = input.csvOptions?.importFromDate;
+  const isCard = input.accountType === 'credit_card';
+  let outOfPeriod = 0;
+  let cardPayments = 0;
+  const evaluatedScoped = evaluated.map((row) => {
+    if (row.decision === 'already_exists' || row.decision === 'excluded_invalid' || row.decision === 'review_later') return row;
+    if (importFrom && row.normalizedDate && row.normalizedDate < importFrom) {
+      outOfPeriod += 1;
+      return {
+        ...row,
+        decision: 'excluded_invalid' as const,
+        candidateReason: `Anterior ao início do controle (${brDate(importFrom)}). Não importado.`,
+      };
+    }
+    if (isCard && row.normalizedDescription && isCardPayment(row.normalizedDescription)) {
+      cardPayments += 1;
+      return {
+        ...row,
+        decision: 'excluded_invalid' as const,
+        candidateReason:
+          'Pagamento da fatura: não é gasto. Registre como transferência da conta corrente para o cartão.',
+      };
+    }
+    return row;
+  });
+  if (outOfPeriod > 0) warnings.push(`${outOfPeriod} linha(s) anterior(es) ao início do controle não serão importadas.`);
+  if (cardPayments > 0) warnings.push(`${cardPayments} pagamento(s) de fatura não serão importados como gasto.`);
+
+  const evaluatedFinal = evaluatedScoped;
+  const validRows = evaluatedFinal.filter((r) => r.validationErrors.length === 0).length;
+  const rejectedRows = evaluatedFinal.filter((r) => r.validationErrors.length > 0).length;
+  const linkedRows = evaluatedFinal.filter((r) => r.decision === 'link_manual').length;
+  const ignoredRows = evaluatedFinal.filter((r) => r.decision === 'already_exists').length;
 
   const batch: ImportBatch = {
     id: input.batchId,
@@ -123,12 +163,12 @@ export function processImportPayload(input: ProcessBatchInput): {
     format: input.format,
     parserVersion: '2.0.0',
     status: 'awaiting_review',
-    totalRows: evaluated.length,
+    totalRows: evaluatedFinal.length,
     validRows,
     linkedRows,
     ignoredRows,
     rejectedRows,
-    rows: evaluated,
+    rows: evaluatedFinal,
     createdAt: new Date().toISOString(),
   };
 

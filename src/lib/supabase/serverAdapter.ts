@@ -35,6 +35,7 @@ import {
   generateRecurrenceDates,
 } from '../domain/ledger';
 import { splitInstallments, todayCivilSaoPaulo } from '../domain/money';
+import { futureInstallmentDates, parseInstallment } from '../importers/cardStatement';
 import { processImportPayload } from '../../../workers/importWorker';
 import { aiConfig, suggestCategoriesWithAi, AiCategory, AiExample } from '../ai/categorizer';
 
@@ -1590,7 +1591,7 @@ export async function sbPrepareImport(
   const { accountId, fileName, format, contentBase64, csvOptions } = body;
   const { data: acc } = await sbUser
     .from('accounts')
-    .select('id, opening_date')
+    .select('id, opening_date, type')
     .eq('id', accountId)
     .eq('owner_id', ownerId)
     .maybeSingle();
@@ -1663,6 +1664,7 @@ export async function sbPrepareImport(
       isActive: Boolean(r.is_active),
     })),
     csvOptions,
+    accountType: acc.type,
   });
 
   // Upload opcional do extrato original para bucket privado no Supabase Storage
@@ -1801,6 +1803,102 @@ export async function sbUpdateImportDecisions(
   return mapImportBatch(updBatch || batchRow, mappedRows);
 }
 
+/**
+ * Parcelas em cartão: cria o plano e as obrigações das parcelas futuras (N+1..M) e liquida
+ * a obrigação desta parcela, se ela já estava agendada. Assim a mesma parcela não fica
+ * contada duas vezes (como gasto da fatura e como parcela futura).
+ */
+async function syncCardInstallments(
+  sbUser: SupabaseClient,
+  ownerId: string,
+  card: { id: string; closingDay: number; dueDay: number },
+  description: string,
+  purchaseDate: string,
+  signedCents: number,
+  movementId: string
+): Promise<void> {
+  const ref = parseInstallment(description);
+  if (!ref || signedCents >= 0) return;
+  const parcelCents = Math.abs(signedCents);
+
+  let { data: plan } = await sbUser
+    .from('installment_plans')
+    .select('id')
+    .eq('owner_id', ownerId)
+    .eq('card_id', card.id)
+    .eq('description', ref.base)
+    .maybeSingle();
+  if (!plan) {
+    const { data: created, error } = await sbUser
+      .from('installment_plans')
+      .insert({
+        owner_id: ownerId,
+        card_id: card.id,
+        description: ref.base,
+        total_contracted_cents: parcelCents * ref.total,
+        installment_count: ref.total,
+        purchase_date: purchaseDate,
+        category_id: null,
+      })
+      .select('id')
+      .single();
+    if (error) throw new Error(error.message);
+    plan = created;
+  }
+  const planId = plan!.id as string;
+
+  // Se a parcela já estava agendada, ela é liquidada por este lançamento de fatura
+  const { data: openOb } = await sbUser
+    .from('obligations')
+    .select('id, version')
+    .eq('owner_id', ownerId)
+    .eq('installment_plan_id', planId)
+    .eq('installment_index', ref.index)
+    .not('status', 'in', '(settled,canceled)')
+    .maybeSingle();
+  if (openOb) {
+    const { error: setErr } = await sbUser.from('settlements').insert({
+      owner_id: ownerId,
+      obligation_id: openOb.id,
+      movement_id: movementId,
+      allocated_cents: parcelCents,
+    });
+    if (setErr) throw new Error(setErr.message);
+    await sbUser
+      .from('obligations')
+      .update({ status: 'settled', version: Number(openOb.version) + 1 })
+      .eq('id', openOb.id)
+      .eq('owner_id', ownerId);
+  }
+
+  // Agenda as parcelas que ainda vão cair nas próximas faturas (sem duplicar)
+  for (const f of futureInstallmentDates(ref, purchaseDate, card.closingDay, card.dueDay)) {
+    const { data: exists } = await sbUser
+      .from('obligations')
+      .select('id')
+      .eq('owner_id', ownerId)
+      .eq('installment_plan_id', planId)
+      .eq('installment_index', f.index)
+      .maybeSingle();
+    if (exists) continue;
+    const { error } = await sbUser.from('obligations').insert({
+      owner_id: ownerId,
+      direction: 'payable',
+      description: `${ref.base} (${f.index}/${ref.total})`,
+      due_date: f.dueDate,
+      competence_date: f.closeDate,
+      original_cents: parcelCents,
+      canceled_cents: 0,
+      status: 'expected',
+      card_id: card.id,
+      installment_plan_id: planId,
+      installment_index: f.index,
+      version: 1,
+    });
+    if (error) throw new Error(error.message);
+  }
+}
+
 export async function sbCommitImportBatch(
   sbUser: SupabaseClient,
   sbAdmin: SupabaseClient | null,
@@ -1843,6 +1941,21 @@ export async function sbCommitImportBatch(
   let importedCount = 0;
   let linkedCount = 0;
   let ignoredCount = 0;
+
+  // Cartão: carrega o cadastro uma vez para tratar parcelas
+  const { data: accType } = await sbUser.from('accounts').select('type').eq('id', batchRow.account_id).maybeSingle();
+  let cardForInstallments: { id: string; closingDay: number; dueDay: number } | null = null;
+  if (accType?.type === 'credit_card') {
+    const { data: cardRow } = await sbUser
+      .from('cards')
+      .select('id, closing_day, due_day')
+      .eq('account_id', batchRow.account_id)
+      .eq('owner_id', ownerId)
+      .maybeSingle();
+    if (cardRow) {
+      cardForInstallments = { id: cardRow.id, closingDay: Number(cardRow.closing_day), dueDay: Number(cardRow.due_day) };
+    }
+  }
 
   for (const row of rows) {
     if (row.decision === 'already_exists' || row.decision === 'excluded_invalid' || row.decision === 'review_later') {
@@ -1925,6 +2038,18 @@ export async function sbCommitImportBatch(
         .update({ created_movement_id: movRow.id })
         .eq('id', row.id)
         .eq('owner_id', ownerId);
+
+      if (cardForInstallments) {
+        await syncCardInstallments(
+          sbUser,
+          ownerId,
+          cardForInstallments,
+          row.normalizedDescription || '',
+          row.normalizedDate,
+          row.normalizedCents,
+          movRow.id
+        );
+      }
 
       await sbUser.from('source_links').insert({
         owner_id: ownerId,

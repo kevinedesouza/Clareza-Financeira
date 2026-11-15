@@ -1,4 +1,6 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { currentCycleStart } from '../../lib/importers/cardStatement';
+import { todayCivilSaoPaulo } from '../../lib/domain/money';
 import { ImportBatch, ImportDecision, WorkspaceData } from '../../lib/domain/types';
 import { formatCivilDateBR } from '../../lib/domain/money';
 import { apiRequest, createOperationKey } from '../../lib/api/client';
@@ -33,6 +35,16 @@ export const ImportsView: React.FC<Props> = ({
   const [delimiter, setDelimiter] = useState<'auto' | ';' | ',' | '\t'>('auto');
   const [dateFormat, setDateFormat] = useState<'DD/MM/YYYY' | 'YYYY-MM-DD' | 'auto'>('DD/MM/YYYY');
   const [positiveIsExpense, setPositiveIsExpense] = useState(false);
+  // Início do controle: lançamentos anteriores a esta data não são importados.
+  const [importFromDate, setImportFromDate] = useState('');
+  const selectedCard = workspace.cards.find((c) => c.accountId === accountId && !c.isArchived);
+  useEffect(() => {
+    if (selectedCard) {
+      setImportFromDate(currentCycleStart(selectedCard.closingDay, todayCivilSaoPaulo()));
+      setPositiveIsExpense(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accountId, selectedCard?.id]);
 
   const [activeBatch, setActiveBatch] = useState<ImportBatch | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
@@ -96,7 +108,10 @@ export const ImportsView: React.FC<Props> = ({
           fileName,
           format,
           contentBase64,
-          csvOptions: format === 'csv' ? { delimiter, dateFormat, positiveIsExpense } : undefined,
+          csvOptions:
+            format === 'csv'
+              ? { delimiter, dateFormat, positiveIsExpense, importFromDate: importFromDate || undefined }
+              : undefined,
         },
       });
       await onRefresh();
@@ -362,6 +377,23 @@ export const ImportsView: React.FC<Props> = ({
                       <option value="DD/MM/YYYY">DD/MM/AAAA</option>
                       <option value="YYYY-MM-DD">AAAA-MM-DD</option>
                     </select>
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label htmlFor="imp-from" className="block text-xs font-medium text-[var(--color-text-secondary)] mb-1">
+                      Importar lançamentos a partir de
+                    </label>
+                    <input
+                      id="imp-from"
+                      type="date"
+                      value={importFromDate}
+                      onChange={(e) => setImportFromDate(e.target.value)}
+                      className="focus-ring w-full min-h-[44px] rounded-lg border border-[var(--color-control-border)] bg-[var(--color-surface)] px-3 text-sm"
+                    />
+                    <p className="mt-1 text-xs text-[var(--color-text-secondary)]">
+                      {selectedCard
+                        ? `Cartão com fechamento dia ${selectedCard.closingDay}: o padrão é o início da fatura aberta. Linhas anteriores não são importadas.`
+                        : 'Deixe em branco para importar tudo. Use para começar o controle a partir de uma data.'}
+                    </p>
                   </div>
                   <label className="flex items-start gap-2 text-sm text-[var(--color-text)] sm:col-span-2 cursor-pointer">
                     <input
