@@ -59,6 +59,7 @@ export const PlanningView: React.FC<Props> = ({ workspace, monthKey, todayDate, 
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const [msg, setMsg] = useState<{ tone: 'error' | 'success'; text: string } | null>(null);
+  const [historyGoalId, setHistoryGoalId] = useState<string | null>(null);
 
   const privacy = workspace.profile.privacyMode;
   const categoryMap = new Map(workspace.categories.map((c) => [c.id, c]));
@@ -514,6 +515,41 @@ export const PlanningView: React.FC<Props> = ({ workspace, monthKey, todayDate, 
                             Falta: <FinancialValue cents={remaining} privacyMode={privacy} />
                           </span>
                         </div>
+
+                        {(() => {
+                          const hist = workspace.goalContributions
+                            .filter((c) => c.goalId === g.id)
+                            .sort((a, b) => b.contributionDate.localeCompare(a.contributionDate));
+                          if (hist.length === 0) return null;
+                          const open = historyGoalId === g.id;
+                          return (
+                            <div className="text-xs">
+                              <button
+                                type="button"
+                                onClick={() => setHistoryGoalId(open ? null : g.id)}
+                                aria-expanded={open}
+                                className="focus-ring rounded-md font-medium text-[var(--color-primary)] hover:underline cursor-pointer"
+                              >
+                                {open ? 'Ocultar histórico' : `Ver histórico (${hist.length})`}
+                              </button>
+                              {open && (
+                                <ul className="mt-2 divide-y divide-[var(--color-border)] rounded-lg border border-[var(--color-border)]">
+                                  {hist.map((c) => (
+                                    <li key={c.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
+                                      <span className="text-[var(--color-text-secondary)]">
+                                        {formatCivilDateBR(c.contributionDate)}
+                                        {c.note ? ` · ${c.note}` : ''}
+                                      </span>
+                                      <span className={c.amountCents >= 0 ? 'text-[var(--color-goal)]' : 'text-[var(--color-expense)]'}>
+                                        <FinancialValue cents={c.amountCents} privacyMode={privacy} showSign />
+                                      </span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                            </div>
+                          );
+                        })()}
 
                         {contribGoalId === g.id ? (
                           <form onSubmit={handleContribute} className="space-y-2 pt-1">

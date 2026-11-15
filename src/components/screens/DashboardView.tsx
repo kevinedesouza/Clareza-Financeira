@@ -211,6 +211,39 @@ export const DashboardView: React.FC<Props> = ({
         </div>
       </section>
 
+      {/* Patrimônio: contas + investimentos - faturas de cartão em aberto */}
+      <section aria-label="Patrimônio líquido" className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5 md:p-6">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-medium text-[var(--color-text-secondary)]">Patrimônio líquido</p>
+            <p className="mt-1 text-2xl font-bold tracking-tight text-[var(--color-text)]">
+              <FinancialValue cents={metrics.netWorthCents} privacyMode={privacy} />
+            </p>
+          </div>
+          {metrics.netWorthIsPartial && (
+            <span className="rounded-md bg-[var(--color-warning-soft)] px-2 py-0.5 text-[11px] font-medium text-[var(--color-warning)]">
+              Parcial
+            </span>
+          )}
+        </div>
+        <dl className="mt-4 grid grid-cols-1 gap-3 text-xs sm:grid-cols-3">
+          <div>
+            <dt className="text-[var(--color-text-secondary)]">Em contas</dt>
+            <dd className="font-medium text-[var(--color-text)]"><FinancialValue cents={metrics.liquidityBalanceCents} privacyMode={privacy} /></dd>
+          </div>
+          <div>
+            <dt className="text-[var(--color-text-secondary)]">Investimentos</dt>
+            <dd className="font-medium text-[var(--color-text)]"><FinancialValue cents={(metrics.netWorthCents - metrics.liquidityBalanceCents + metrics.cardDebtCents)} privacyMode={privacy} /></dd>
+          </div>
+          <div>
+            <dt className="text-[var(--color-text-secondary)]">Faturas de cartão em aberto</dt>
+            <dd className="font-medium text-[var(--color-expense)]">
+              <FinancialValue cents={-metrics.cardDebtCents} privacyMode={privacy} />
+            </dd>
+          </div>
+        </dl>
+      </section>
+
       {/* Segunda Linha: Evolução de caixa + Gastos por categoria (competência) */}
       <section className="grid grid-cols-1 gap-6 xl:grid-cols-12">
         <div className="xl:col-span-7 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5 md:p-6">

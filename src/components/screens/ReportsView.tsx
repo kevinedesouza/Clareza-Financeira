@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { WorkspaceData } from '../../lib/domain/types';
 import { computeAccountBalance, computeDashboardMetrics } from '../../lib/domain/ledger';
+import { computeInvestmentReturns, computeMonthlyTrend } from '../../lib/domain/analytics';
+import { MonthlyTrendChart } from '../charts/MonthlyTrendChart';
 import { formatCivilDateBR } from '../../lib/domain/money';
 import { buildSafeCsvExport } from '../../lib/importers/csvParser';
 import { Button, FinancialValue, StatusTag } from '../ui/Primitives';
@@ -15,7 +17,9 @@ interface Props {
 }
 
 export const ReportsView: React.FC<Props> = ({ workspace, periodStart, periodEnd, todayDate }) => {
-  const [basis, setBasis] = useState<'cash' | 'competence' | 'accounts' | 'projects'>('cash');
+  const [basis, setBasis] = useState<'cash' | 'competence' | 'accounts' | 'projects' | 'trend' | 'investments'>('cash');
+  const trend = basis === 'trend' ? computeMonthlyTrend(workspace, periodEnd.slice(0, 7), 12) : null;
+  const investments = basis === 'investments' ? computeInvestmentReturns(workspace) : null;
   const privacy = workspace.profile.privacyMode;
 
   const metrics = computeDashboardMetrics(workspace, {
@@ -81,6 +85,8 @@ export const ReportsView: React.FC<Props> = ({ workspace, periodStart, periodEnd
             { id: 'competence', label: 'Gastos por categoria' },
             { id: 'accounts', label: 'Posição por conta' },
             { id: 'projects', label: 'Projetos' },
+            { id: 'trend', label: 'Tendência 12 meses' },
+            { id: 'investments', label: 'Investimentos' },
           ] as const
         ).map((tab) => (
           <button
@@ -95,6 +101,71 @@ export const ReportsView: React.FC<Props> = ({ workspace, periodStart, periodEnd
           </button>
         ))}
       </div>
+
+      {basis === 'trend' && trend && (
+        <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5 md:p-6 space-y-4">
+          <div>
+            <h2 className="text-base font-semibold text-[var(--color-text)]">Receitas, despesas e saldo nos últimos 12 meses</h2>
+            <p className="text-xs text-[var(--color-text-secondary)]">
+              Receitas e despesas pela data da compra ou do recebimento. O saldo é o das contas de liquidez no último dia de cada mês.
+            </p>
+            {trend.liquidityIsPartial && (
+              <p className="mt-1 text-xs text-[var(--color-warning)]">Algum saldo inicial ainda não foi informado: o saldo aparece como "Não validado".</p>
+            )}
+          </div>
+          <MonthlyTrendChart points={trend.points} privacyMode={workspace.profile.privacyMode} />
+        </div>
+      )}
+
+      {basis === 'investments' && investments && (
+        <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5 md:p-6 space-y-4">
+          <div>
+            <h2 className="text-base font-semibold text-[var(--color-text)]">Rendimento dos investimentos</h2>
+            <p className="text-xs text-[var(--color-text-secondary)]">
+              Capital = saldo inicial + aportes − resgates (registrados como transferências). Rendimento = saldo atual − capital. Se você atualizou o saldo sem registrar aporte, a diferença aparece como rendimento.
+            </p>
+          </div>
+          {investments.length === 0 ? (
+            <p className="rounded-lg border border-dashed border-[var(--color-border)] p-4 text-sm text-[var(--color-text-secondary)]">
+              Nenhuma conta de investimento cadastrada. Crie uma conta do tipo "Investimento manual" em Contas.
+            </p>
+          ) : (
+            <ul className="divide-y divide-[var(--color-border)]">
+              {investments.map((r) => (
+                <li key={r.accountId} className="grid grid-cols-2 sm:grid-cols-4 gap-3 py-3 text-sm">
+                  <div className="col-span-2 sm:col-span-1">
+                    <p className="font-medium text-[var(--color-text)]">{r.name}</p>
+                    {!r.hasContributions && <p className="text-[11px] text-[var(--color-text-secondary)]">Sem aportes registrados</p>}
+                  </div>
+                  <div>
+                    <p className="text-[11px] text-[var(--color-text-secondary)]">Capital aplicado</p>
+                    <FinancialValue cents={r.capitalCents} privacyMode={workspace.profile.privacyMode} />
+                  </div>
+                  <div>
+                    <p className="text-[11px] text-[var(--color-text-secondary)]">Saldo atual</p>
+                    {r.currentCents === null ? (
+                      <span className="text-[var(--color-warning)]">Não validado</span>
+                    ) : (
+                      <FinancialValue cents={r.currentCents} privacyMode={workspace.profile.privacyMode} />
+                    )}
+                  </div>
+                  <div>
+                    <p className="text-[11px] text-[var(--color-text-secondary)]">Rendimento</p>
+                    {r.gainCents === null ? (
+                      <span className="text-[var(--color-warning)]">—</span>
+                    ) : (
+                      <span className={r.gainCents >= 0 ? 'text-[var(--color-income)]' : 'text-[var(--color-expense)]'}>
+                        <FinancialValue cents={r.gainCents} privacyMode={workspace.profile.privacyMode} showSign />
+                        {r.gainPct !== null && <span className="ml-1 text-xs">({r.gainPct.toFixed(1)}%)</span>}
+                      </span>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
 
       {basis === 'cash' && (
         <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6 space-y-4">
