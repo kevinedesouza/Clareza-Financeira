@@ -278,7 +278,8 @@ export const CardsView: React.FC<Props> = ({ workspace, onRefresh, onPayBill }) 
               acc,
               workspace.movements,
               workspace.obligations,
-              workspace.settlements
+              workspace.settlements,
+              workspace.installmentPlans
             );
             const cardObs = workspace.obligations.filter(
               (o) => o.cardId === card.id && o.status !== 'canceled' && o.status !== 'settled'
@@ -333,6 +334,11 @@ export const CardsView: React.FC<Props> = ({ workspace, onRefresh, onPayBill }) 
                     <div className="mt-1 text-lg font-semibold text-[var(--color-text)]">
                       <FinancialValue cents={summary.availableEstimatedCents} privacyMode={privacy} />
                     </div>
+                    {summary.futureNotInDebtCents > 0 && (
+                      <p className="mt-1 text-[11px] text-[var(--color-text-secondary)]">
+                        Já descontadas as parcelas futuras (<FinancialValue cents={summary.futureNotInDebtCents} privacyMode={privacy} />).
+                      </p>
+                    )}
                   </div>
                   <div>
                     <span className="text-xs text-[var(--color-text-secondary)]">Parcelas futuras</span>

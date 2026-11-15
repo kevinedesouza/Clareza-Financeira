@@ -10,6 +10,7 @@ import {
   Recurrence,
   Settlement,
   WorkspaceData,
+  InstallmentPlan,
 } from './types';
 import { addDaysCivil, addMonthsCivil, daysInMonth, splitInstallments } from './money';
 
@@ -126,15 +127,29 @@ export function computeCardDebtSummary(
   account: Account,
   movements: AccountMovement[],
   obligations: Obligation[],
-  settlements: Settlement[]
+  settlements: Settlement[],
+  installmentPlans: InstallmentPlan[] = []
 ) {
   const cardMovs = movements.filter((m) => !m.isDeleted && m.accountId === account.id);
   const signedBalance = account.openingBalanceCents + cardMovs.reduce((acc, m) => acc + m.signedCents, 0);
   const debtCents = signedBalance < 0 ? -signedBalance : 0;
   const creditInFavorCents = signedBalance > 0 ? signedBalance : 0;
 
-  const futureInstallmentsCents = obligations
-    .filter((o) => o.cardId === card.id && o.status !== 'canceled' && o.status !== 'settled')
+  const openFuture = obligations.filter((o) => o.cardId === card.id && o.status !== 'canceled' && o.status !== 'settled');
+  const futureInstallmentsCents = openFuture.reduce((acc, o) => acc + computeObligationOpenCents(o, settlements), 0);
+
+  // Parcelas futuras também ocupam o limite. Mas na "Compra parcelada" manual o valor TOTAL já foi
+  // lançado no cartão (está na dívida): essas parcelas não podem ser descontadas de novo.
+  // Na importação de fatura só a parcela do mês é lançada, então as próximas ainda não estão na dívida.
+  const fullyBookedPlanIds = new Set(
+    installmentPlans
+      .filter((p) =>
+        cardMovs.some((m) => m.signedCents === -p.totalContractedCents && m.effectiveDate === p.purchaseDate)
+      )
+      .map((p) => p.id)
+  );
+  const futureNotInDebtCents = openFuture
+    .filter((o) => !o.installmentPlanId || !fullyBookedPlanIds.has(o.installmentPlanId))
     .reduce((acc, o) => acc + computeObligationOpenCents(o, settlements), 0);
 
   return {
@@ -142,7 +157,9 @@ export function computeCardDebtSummary(
     debtCents,
     creditInFavorCents,
     futureInstallmentsCents,
-    availableEstimatedCents: Math.max(0, card.creditLimitCents - debtCents),
+    /** Parte das parcelas futuras que ainda não está lançada na dívida (desconta do limite). */
+    futureNotInDebtCents,
+    availableEstimatedCents: Math.max(0, card.creditLimitCents - debtCents - futureNotInDebtCents),
   };
 }
 
@@ -509,7 +526,7 @@ export function computeDashboardMetrics(
     if (card.isArchived) continue;
     const acc = accountMap.get(card.accountId);
     if (!acc) continue;
-    const summary = computeCardDebtSummary(card, acc, data.movements, data.obligations, data.settlements);
+    const summary = computeCardDebtSummary(card, acc, data.movements, data.obligations, data.settlements, data.installmentPlans);
     liabilitiesCents += summary.debtCents;
   }
 
